@@ -223,8 +223,8 @@ with-timeout はファイルI/O中に効かないため、condition-case で
         (setq dashboard-startup-banner banner-path)
       (setq dashboard-startup-banner 'official))) ; 画像がない場合は標準ロゴ
   
-  ;; タイトルメッセージ
-  (setq dashboard-banner-logo-title "Welcome to GNU Emacs portable!")
+  ;; タイトルメッセージ (ロゴのすぐ下にバージョン入りで表示)
+  (setq dashboard-banner-logo-title (format "Welcome to GNU Emacs portable version %s" emacs-version))
   
   ;; 中央寄せ表示
   (setq dashboard-center-content t)
@@ -250,7 +250,9 @@ with-timeout はファイルI/O中に効かないため、condition-case で
   (setq dashboard-set-heading-icons nil)
   (setq dashboard-set-file-icons nil)
   
-  ;; フッターの非表示（スッキリさせるため）
+  ;; フッターの非表示 (ロゴ下部分にバージョンを表示したため非表示)
+  (setq dashboard-show-footer nil)
+  
   (setq dashboard-show-shortcuts t)
   (setq dashboard-set-navigator t))
 
