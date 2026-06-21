@@ -1,3 +1,4 @@
+;;; -*- lexical-binding: t -*-
 (custom-set-variables
  ;; custom-set-variables was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
@@ -9,7 +10,8 @@
  '(current-language-environment "Japanese")
  '(custom-enabled-themes '(ef-summer))
  '(custom-safe-themes
-   '("1c725e4aee133f350459e0692f2b885c3444982bf6e8647b05d1cfc519760d9f"
+   '("dc8d63cd0514d058bdf34774163709834519350c1a80dc04deaa58085a8810a5"
+     "1c725e4aee133f350459e0692f2b885c3444982bf6e8647b05d1cfc519760d9f"
      "5db7ff8db7fe64558355dba6314cb73008eb7cb1a4ca4552d69fbe588ef4c224"
      "6d58e2b15bdf919fb3f975572af5de59556507b4addf71d8a0d4da3b5af1e830"
      "8c7e832be864674c220f9a9361c851917a93f921fedb7717b1b5ece47690c098"
@@ -132,11 +134,19 @@
      default))
  '(display-time-mode t)
  '(global-display-line-numbers-mode t)
- '(package-selected-packages nil)
+ '(package-selected-packages
+   '(acp atomic-chrome autothemer beacon bicycle calfw-howm calfw-org
+	 cape casual-symbol-overlay centaur-tabs corfu deft ef-themes
+	 embark-consult ewal fd-dired forest-blue-theme gptel
+	 hide-mode-line imenu-list japanese-holidays major-mode-hydra
+	 marginalia markdown-toc migemo mozc-modeless multiple-cursors
+	 nov nyan-mode obsidian orderless org-download persist
+	 persistent-scratch rainbow-delimiters smartparens tr-ime
+	 track-changes vertico-posframe visual-regexp
+	 vscode-dark-plus-theme wgrep zoxide))
  '(package-vc-selected-packages
    '((gptel :vc-backend Git :url "https://github.com/karthink/gptel")))
  '(uniquify-buffer-name-style nil nil (uniquify)))
-
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
