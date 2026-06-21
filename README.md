@@ -109,6 +109,11 @@
 
 > `bin/` 内の外部コマンドは PATH が通っていれば省略可能です。init.el が PATH → `bin/` の順に自動検出します。
 
+> [!NOTE]
+> **Migemo（日本語ローマ字検索）の辞書とDLLについて**:
+> - **辞書の配置**: `cmigemo.exe` が置かれている場所から相対的に `dict/utf-8/migemo-dict` となるように辞書ファイルを配置してください（例: `bin/dict/utf-8/migemo-dict`）。
+> - **DLLについて**: Emacsの `migemo` パッケージは `cmigemo.exe` を外部プロセスとして呼び出して通信するため、**`migemo.dll` や `cmigemo.dll` などの DLL ファイルは不要**です。
+
 ### フォントの準備
 
 本設定は、プログラミング用日本語等幅フォント **[Utatane](https://github.com/nv-h/Utatane)** の利用を前提に設計されています。
