@@ -220,7 +220,6 @@
 - `migemo` — 日本語ローマ字でのバッファ内高速検索
 - `mozc` / `mozc-modeless` — モードレス日本語入力環境
 - `multiple-cursors` — 複数箇所同時編集（マルチカーソル）
-- `nerd-icons` — UI用のアイコンフォントリソース
 - `nov` — EPUB 電子書籍リーダー
 - `nyan-mode` — モードラインの Nyan Cat 進行度バー
 - `obsidian` — Obsidian Vault との連携
@@ -229,8 +228,6 @@
 - `persist` — 変数の状態永続化
 - `persistent-scratch` — scratchバッファ内容の保存と自動復元
 - `rainbow-delimiters` — 括弧・ブラケットを深さごとに色分け表示
-- `taxy-magit-section` — taxy 連携用の magit ライク表示
-- `thrift` — Apache Thrift 定義ファイル編集モード
 - `tr-ime` — Windows IME 制御連携（w32-ime 互換）
 - `track-changes` — バッファ変更トラッキング
 - `vertico` / `vertico-posframe` — 縦型ミニバッファ補完とフレーム内ポップアップ化
