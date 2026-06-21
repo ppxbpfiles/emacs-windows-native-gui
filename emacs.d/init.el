@@ -539,7 +539,7 @@ with-timeout はファイルI/O中に効かないため、condition-case で
 (use-package hide-mode-line
   :ensure t
   :hook
-  ((neotree-mode imenu-list-minor-mode minimap-mode) . hide-mode-line-mode))
+  ((neotree-mode imenu-list-major-mode minimap-mode) . hide-mode-line-mode))
 
 ;; 🌟 タイトルバーのカスタマイズ（ドライブ名大文字化 ＆ パソコン名自動取得版）
 (setq frame-title-format
