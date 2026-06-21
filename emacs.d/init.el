@@ -871,6 +871,44 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
 ;; cua-enable-cua-keys を明示的に t にして標準動作を保証する。
 (setq cua-enable-cua-keys t)
 
+;; =====================================================================
+;; Alt+ドラッグで矩形選択する
+;; ─ 標準の secondary-selection（M-drag-mouse-1）を上書きし、
+;;   Windows系エディタのような Alt+ドラッグ矩形選択に置き換える
+;; =====================================================================
+
+(defun my/mouse-drag-rectangle (start-event)
+  "Alt+ドラッグで矩形選択(rectangle-mark-mode)を行う。"
+  (interactive "e")
+  (mouse-minibuffer-check start-event)
+  (let* ((start-posn (event-start start-event))
+         (start-point (posn-point start-posn))
+         (start-window (posn-window start-posn)))
+    (select-window start-window)
+    (goto-char start-point)
+    (push-mark start-point nil t)
+    (rectangle-mark-mode 1)
+    (track-mouse
+      (let (event)
+        (while (progn
+                 (setq event (read-event))
+                 (or (mouse-movement-p event)
+                     (memq (car-safe event) '(switch-frame select-window))))
+          (when (mouse-movement-p event)
+            (let* ((posn (event-end event))
+                   (point (posn-point posn)))
+              (when point
+                (goto-char point)))))))))
+
+;; secondary-selection 用のデフォルトバインドを解除してから割り当てる
+;; ※ マウスイベント+Modifierは (kbd "...") ではなくベクタ形式で指定する
+(global-unset-key [M-down-mouse-1])
+(global-set-key [M-down-mouse-1] #'my/mouse-drag-rectangle)
+
+;; Windows風に Esc キーでも矩形選択を解除できるようにする
+(with-eval-after-load 'rect
+  (define-key rectangle-mark-mode-map (kbd "<escape>") #'keyboard-quit))
+
 ;; Windows 系ショートカット
 (global-set-key (kbd "C-z") 'undo)
 (global-set-key (kbd "C-y") 'undo-redo)
