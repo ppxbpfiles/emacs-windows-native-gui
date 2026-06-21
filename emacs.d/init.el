@@ -883,22 +883,27 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
   (mouse-minibuffer-check start-event)
   (let* ((start-posn (event-start start-event))
          (start-point (posn-point start-posn))
-         (start-window (posn-window start-posn)))
+         (start-window (posn-window start-posn))
+         event)
     (select-window start-window)
     (goto-char start-point)
     (push-mark start-point nil t)
     (rectangle-mark-mode 1)
     (track-mouse
-      (let (event)
-        (while (progn
-                 (setq event (read-event))
-                 (or (mouse-movement-p event)
-                     (memq (car-safe event) '(switch-frame select-window))))
-          (when (mouse-movement-p event)
-            (let* ((posn (event-end event))
-                   (point (posn-point posn)))
-              (when point
-                (goto-char point)))))))))
+      (catch 'my/rectangle-drag-done
+        (while t
+          (setq event (read-event))
+          ;; 溜まっている移動イベントは古いものを捨てて最新の1つだけ処理する
+          ;; （これによりドラッグ中の余分な再描画を減らし、引っかかりを軽減する）
+          (while (and (mouse-movement-p event) (input-pending-p))
+            (setq event (read-event)))
+          (let* ((posn (event-end event))
+                 (point (and posn (posn-point posn))))
+            (when point
+              (goto-char point)))
+          (unless (or (mouse-movement-p event)
+                      (memq (car-safe event) '(switch-frame select-window)))
+            (throw 'my/rectangle-drag-done t)))))))
 
 ;; secondary-selection 用のデフォルトバインドを解除してから割り当てる
 ;; ※ マウスイベント+Modifierは (kbd "...") ではなくベクタ形式で指定する
