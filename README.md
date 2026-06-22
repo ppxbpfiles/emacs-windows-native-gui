@@ -20,6 +20,7 @@
 - **タブバー（Centaur Tabs）** — 内部バッファ（`*scratch*` など）はタブバー上で後方に配置されますが、`F2`（consult-buffer）でいつでも一覧から選択・切り替えできます
 - **全角スペース・TAB・行末スペースの可視化** — 全角スペースを「`□`」、TABを「`»`」、行末の不要なスペース（半角・全角）を赤くハイライト表示して、入力・編集ミスを防ぎます
 - **サクラエディタ風の正規表現キーワード強調** — テキストや Markdown 文書において、各種括弧（`「」` `【】` `（）` など）、引用符（`''` `""`）、および丸数字（`①-⑳`）を自動で色分け表示します
+- **リアルタイム置換（visual-replace）** — 文字入力と同時に、バッファ上で実際に置換された状態がリアルタイムでプレビューされ、置換ミスを未然に防ぎます
 
 ## 主な構成
 
@@ -35,11 +36,12 @@
 | 12. multiple-cursors | マルチカーソル編集（`C->` / `C-<`） |
 | 13. howm | Obsidian 互換 Markdown メモ（howm-markdown.el）、`#タグ` ボタン、consult-ripgrep 連携 |
 | 14. Obsidian 連携 | obsidian.el によるノート検索・保存 |
+| 19. リアルタイム置換 | visual-replace によるリアルタイムプレビュー付き置換（通常/正規表現） |
 | 21b. Mozc 日本語入力 | mozc-modeless によるモードレス日本語入力、`C-\\` で手動 ON/OFF トグル（tr-ime / w32-ime は無効） |
 | 22. gptel | OpenAI / xAI / Gemini / OpenRouter 対応 LLM チャット |
 | 23. GhostText 連携 | atomic-chrome によるブラウザ入力欄のリアルタイム編集 |
 
-その他：calfw（カレンダー）、Casual（Transient メニュー）、symbol-overlay（カラーマーカー）、Lookup（EPWING 辞書）、nov.el（EPUB）、empv（音楽再生）、zoxide 連携、fd / ripgrep 連携
+その他：calfw（カレンダー）、Casual（Transient メニュー）、symbol-overlay（カラーマーカー）、Lookup（EPWING 辞書）、nov.el（EPUB）、empv（音楽再生）、zoxide 連携、fd / ripgrep 連携、visual-replace（リアルタイム置換）
 
 ## キーバインド早見表
 
