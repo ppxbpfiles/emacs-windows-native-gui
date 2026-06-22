@@ -59,6 +59,9 @@
 | `Alt + ドラッグ` | 矩形選択（`rectangle-mark-mode`）を開始 |
 | `C-RET` (Ctrl+Enter) | キーボードによる矩形選択を開始 |
 | `ESC` | 矩形選択（または選択範囲）の解除 |
+| `C-e` | 行頭・行末のスマートトグル（インデント先頭 ⇆ 本当の行頭 ⇆ 行末） |
+| `M-%` | リアルタイム通常置換（visual-replace） |
+| `C-M-%` | リアルタイム正規表現置換（visual-replace） |
 
 ### ダッシュボードでのショートカット
 
@@ -95,6 +98,7 @@
 | `tb-paste.png` | 貼り付け | `yank` | キルリングから内容を貼り付け |
 | `tb-search-fwd.png` | 後を検索 | `isearch-forward` | 現在地より後方（下）に向かってインクリメンタル検索 |
 | `tb-search-bwd.png` | 前を検索 | `isearch-backward` | 現在地より前方（上）に向かってインクリメンタル検索 |
+| `tb-replace.png` | 置換 | `my/visual-replace-menu` | 通常/正規表現、全体/カーソル以下の置換オプションを選択するポップアップメニューを表示 |
 | `tb-filter.png` | フィルタ表示 | `my/emeditor-filter` | 検索条件にマッチする行のみを抽出し、その場で直接編集（内部で `occur-edit-mode` を使用。`C-c C-c` で適用保存） |
 | `tb-marker.png` | マーカー設置 | `my/marker-put` | カーソル位置の単語や選択範囲にカラーマーカーを付与／消去 |
 | `tb-marker-clear.png` | マーカークリア | `my/marker-remove-all` | バッファ内のすべてのカラーマーカーを一括消去 |
