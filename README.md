@@ -64,6 +64,7 @@
 | `C-RET` (Ctrl+Enter) | キーボードによる矩形選択を開始 |
 | `ESC` | 矩形選択（または選択範囲）の解除 |
 | `C-e` | 行頭・行末のスマートトグル（インデント先頭 ⇆ 本当の行頭 ⇆ 行末） |
+| `M-z` (Alt+Z) | vundo — undo ツリーを視覚化してツリー上の任意の過去状態に戻る |
 | `M-%` | リアルタイム通常置換（visual-replace） |
 | `C-M-%` | リアルタイム正規表現置換（visual-replace） |
 
@@ -212,6 +213,7 @@
 | multiple-cursors | マルチカーソル編集 |
 | bicycle | バッファ折りたたみ操作 |
 | rainbow-delimiters | 括弧を深さごとに色分け表示 |
+| vundo | undo 履歴をツリーで視覚化して任意の時点に戻る（`M-z`） |
 | zoxide | 頻繁に使うディレクトリへの高速移動（`M-o z`） |
 
 ### Windows 連携
@@ -273,6 +275,7 @@
 - `vertico` / `vertico-posframe` — 縦型ミニバッファ補完とフレーム内ポップアップ化
 - `visual-regexp` — 正規表現を用いたインタラクティブ置換 UI
 - `vscode-dark-plus-theme` — VS Code 風ダークテーマ
+- `vundo` — undo 履歴をツリー構造で視覚化し、任意の過去状態に安全に戻る（`M-z`）
 - `wgrep` — grep / ripgrep 結果バッファの直接編集機能
 - `zoxide` — ディレクトリ履歴ベースの高速移動
 

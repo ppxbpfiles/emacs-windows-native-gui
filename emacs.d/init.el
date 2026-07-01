@@ -958,6 +958,19 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
 ;; Windows 系ショートカット
 (global-set-key (kbd "C-z") 'undo)
 (global-set-key (kbd "C-y") 'undo-redo)
+
+;; C-z (undo) の直感的な拡張として Alt+Z (M-z) に vundo を割り当て
+(use-package vundo
+  :ensure t
+  :bind (("M-z" . vundo))
+  :config
+  ;; vundo 起動中は矢印キーで直感的にツリーを移動できるようにする
+  (with-eval-after-load 'vundo
+    (define-key vundo-mode-map (kbd "<right>") #'vundo-forward)
+    (define-key vundo-mode-map (kbd "<left>")  #'vundo-backward)
+    (define-key vundo-mode-map (kbd "<down>")  #'vundo-next)
+    (define-key vundo-mode-map (kbd "<up>")    #'vundo-previous)))
+
 (global-set-key (kbd "C-s") 'save-buffer)
 (global-set-key (kbd "C-a") 'mark-whole-buffer)
 (global-set-key (kbd "C-o") 'menu-find-file-existing) ; Windows ネイティブダイアログで開く
