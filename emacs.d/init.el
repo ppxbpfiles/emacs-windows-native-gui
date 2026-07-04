@@ -2634,6 +2634,9 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
     (setq nov-unzip-program (executable-find "tar")
           nov-unzip-args '("-xC" directory "-f" filename)))
 
+  ;; EPUB内の画像表示をウィンドウサイズの50%を上限に合わせる設定
+  (setq shr-max-image-proportion 0.5)
+
   (defun my/nov-mode-hook ()
     (setq-local line-spacing 0.2)
     (setq-local fill-column 80)

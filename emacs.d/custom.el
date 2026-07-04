@@ -10,7 +10,23 @@
  '(current-language-environment "Japanese")
  '(custom-enabled-themes '(ef-summer))
  '(custom-safe-themes
-   '("dc8d63cd0514d058bdf34774163709834519350c1a80dc04deaa58085a8810a5"
+   '("6aff83667a3bad8db2f55d69cf595f58b56af233f116ec24d93fe2aa51033eef"
+     "12d171fabc26d4e8f3509cfb3fe944ff7d1decb673506bf9d309eab7fcf48c0d"
+     "01bb579ed8a5b4a77490798626a96ae153288b8c2709e291162cfcc2e0aad647"
+     "e1df746a4fa8ab920aafb96c39cd0ab0f1bac558eff34532f453bd32c687b9d6"
+     "456697e914823ee45365b843c89fbc79191fdbaff471b29aad9dcbe0ee1d5641"
+     "7de64ff2bb2f94d7679a7e9019e23c3bf1a6a04ba54341c36e7cf2d2e56e2bcc"
+     "9e5e0ff3a81344c9b1e6bfc9b3dcf9b96d5ec6a60d8de6d4c762ee9e2121dfb2"
+     "21d2bf8d4d1df4859ff94422b5e41f6f2eeff14dd12f01428fa3cb4cb50ea0fb"
+     "1f292969fc19ba45fbc6542ed54e58ab5ad3dbe41b70d8cb2d1f85c22d07e518"
+     "e4a702e262c3e3501dfe25091621fe12cd63c7845221687e36a79e17cf3a67e0"
+     "d481904809c509641a1a1f1b1eb80b94c58c210145effc2631c1a7f2e4a2fdf4"
+     "dd4582661a1c6b865a33b89312c97a13a3885dc95992e2e5fc57456b4c545176"
+     "c3c135e69890de6a85ebf791017d458d3deb3954f81dcb7ac8c430e1620bb0f1"
+     "83550d0386203f010fa42ad1af064a766cfec06fc2f42eb4f2d89ab646f3ac01"
+     "5244ba0273a952a536e07abaad1fdf7c90d7ebb3647f36269c23bfd1cf20b0b8"
+     "5acb2e842cccd8e19e3f263a7e27345b7c12024b80cfad00094c9da54cc0a0ed"
+     "dc8d63cd0514d058bdf34774163709834519350c1a80dc04deaa58085a8810a5"
      "1c725e4aee133f350459e0692f2b885c3444982bf6e8647b05d1cfc519760d9f"
      "5db7ff8db7fe64558355dba6314cb73008eb7cb1a4ca4552d69fbe588ef4c224"
      "6d58e2b15bdf919fb3f975572af5de59556507b4addf71d8a0d4da3b5af1e830"
@@ -135,15 +151,17 @@
  '(display-time-mode t)
  '(global-display-line-numbers-mode t)
  '(package-selected-packages
-   '(acp atomic-chrome autothemer beacon bicycle calfw-howm calfw-org
-	 cape casual-symbol-overlay centaur-tabs corfu deft ef-themes
-	 embark-consult ewal fd-dired forest-blue-theme gptel
-	 hide-mode-line imenu-list japanese-holidays major-mode-hydra
-	 marginalia markdown-toc migemo mozc-modeless multiple-cursors
-	 nov nyan-mode obsidian orderless org-download persist
-	 persistent-scratch rainbow-delimiters smartparens tr-ime
-	 track-changes vertico-posframe visual-regexp
-	 vscode-dark-plus-theme wgrep zoxide))
+   '(acp anzu atomic-chrome autothemer beacon bicycle calfw-howm
+	 calfw-org cape casual-symbol-overlay centaur-tabs
+	 color-moccur corfu dashboard deft dmacro ef-themes
+	 embark-consult fd-dired forest-blue-theme gptel
+	 hide-mode-line ical-form imenu-list japanese-holidays llama
+	 major-mode-hydra marginalia markdown-toc migemo
+	 modus-ewal-theme mozc-modeless multiple-cursors nov nyan-mode
+	 obsidian orderless org-download persist persistent-scratch
+	 rainbow-delimiters smartparens taxy tr-ime track-changes
+	 vertico-posframe visual-regexp visual-replace
+	 vscode-dark-plus-theme vundo wgrep zoxide))
  '(package-vc-selected-packages
    '((gptel :vc-backend Git :url "https://github.com/karthink/gptel")))
  '(uniquify-buffer-name-style nil nil (uniquify)))
