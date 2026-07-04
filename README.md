@@ -116,16 +116,18 @@
 | `tb-close.png` | ウィンドウ閉じる | `delete-window` | 現在アクティブなウィンドウ（分割画面）を閉じる |
 | `tb-close-others.png` | 他ウィンドウ閉じる | `delete-other-windows` | 他の分割ウィンドウをすべて閉じて1画面に戻す |
 
-## ディレクトリ構造
+## ディレクトリ構造とポータブル起動
 
-ポータブル運用を想定した配置例です。`emacs/` フォルダごと移動・コピーすれば動作します。
+ポータブル運用を想定した配置例です。`emacs/` フォルダと起動用のバッチファイルをセットで移動・コピーすれば動作します。
 
 ```
-任意のフォルダ/
+任意のフォルダ/ (例: emacs_portable/)
+├── run-emacs.bat            ← ポータブル起動用バッチファイル（これをダブルクリックして起動します）
+├── run-emacs-debug.bat      ← デバッグ起動用バッチファイル
 ├── emacs/                   ← Emacs 本体（runemacs.exe など）
 │   └── bin/
 │       └── runemacs.exe
-├── .emacs.d/                ← この設定リポジトリ
+├── .emacs.d/                ← この設定リポジトリ（ユーザー環境のメイン設定）
 │   ├── init.el              ← メイン設定ファイル
 │   ├── custom.el            ← M-x customize の設定（自動生成・公開可）
 │   ├── fonts/               ← ポータブルフォント（Utatane など）
@@ -141,6 +143,8 @@
     └── emacs-conpty.exe     ← Windows ConPTY プロキシ
 ```
 
+> **起動方法**: `run-emacs.bat` を実行すると、環境変数 `HOME` をバッチファイルのあるフォルダ（ポータブルルート）に自動設定した状態で Emacs を起動します。これにより、USBや別のPCにフォルダごと持ち運んでも、常に同じ個人設定が適用されます。
+> 
 > `bin/` 内の外部コマンドは PATH が通っていれば省略可能です。init.el が PATH → `bin/` の順に自動検出します。
 
 > [!NOTE]
@@ -345,12 +349,10 @@
 
 Emacs の Lisp（Elisp）による設定やカスタマイズは、パッケージ同士の競合や構文のミスによりトラブルが発生しやすく、自力でのデバッグは難易度が高い場合があります。そのため、本設定の拡張やメンテナンスを行う際も、同様に AI アシスタントに設定ファイル（`init.el`）と要望を渡し、カスタマイズを任せることを強く推奨します。競合を避けた安全なコード生成やデバッグを自動で行ってくれるため、手動で編集するよりも圧倒的にメンテナンスしやすくなります。
 
-## クレジットとライセンス
+## クレジット
 
-### コードのライセンス
-本リポジトリの各種 Elisp 設定コードは [MIT License](LICENSE) のもとで公開されています。
+本設定ファイル（Elispコード等）の転載・配布・コピー等はご自由に行っていただいて構いません。
 
-### アセットのライセンス
 ツールバー等で使用しているアイコンアセットの著作権・ライセンスは各作者に帰属します。
 * **Silk Icons** (by [famfamfam](http://www.famfamfam.com/lab/icons/silk/)): [CC BY 2.5](https://creativecommons.org/licenses/by/2.5/)
 * **Adwaita Icons** (by [GNOME Project](https://gitlab.gnome.org/GNOME/adwaita-icon-theme)): [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) / GNU LGPL v3
