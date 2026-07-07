@@ -972,7 +972,20 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
     (define-key vundo-mode-map (kbd "<up>")    #'vundo-previous)))
 
 (global-set-key (kbd "C-s") 'save-buffer)
-(global-set-key (kbd "C-a") 'mark-whole-buffer)
+
+;; C-a に全選択・全選択解除のトグルを割り当て
+;; すでにバッファ全体が選択されている場合は選択解除、そうでなければ全選択する
+(defun my/select-all-toggle ()
+  "全選択と選択解除をトグルします。
+リージョンがアクティブかつバッファ全体を覆っている場合は選択解除し、
+それ以外の場合はバッファ全体を選択します。"
+  (interactive)
+  (if (and (use-region-p)
+           (= (region-beginning) (point-min))
+           (= (region-end) (point-max)))
+      (deactivate-mark)
+    (mark-whole-buffer)))
+(global-set-key (kbd "C-a") 'my/select-all-toggle)
 (global-set-key (kbd "C-o") 'menu-find-file-existing) ; Windows ネイティブダイアログで開く
 (global-set-key (kbd "C-w") 'kill-current-buffer)
 
@@ -1028,7 +1041,8 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
         (howm-kill-all)
         ;; *Ilist* は howm-kill-all の対象外なので別途閉じる
         (when-let ((ilist-win (get-buffer-window "*Ilist*")))
-          (delete-window ilist-win)))
+          (delete-window ilist-win))
+        (message nil))  ; 🌟 ミニバッファのメッセージ（プロンプト）をクリア
     (howm-menu)))
 (global-set-key [f5] 'my/howm-toggle) ;; F5 で howm 環境トグル
 (global-set-key (kbd "<menu>") 'context-menu-open) ;; Menu キーで右クリック
@@ -2129,7 +2143,20 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   (setq imenu-list-position 'right)   ; 右端に表示
   (setq imenu-list-size     0.20)     ; 画面幅の 20%
   (setq imenu-list-focus-after-activation nil) ; 開いてもエディタ側にフォーカスを残す
-  (setq imenu-list-auto-resize t))    ; 項目数に合わせて自動リサイズ
+  (setq imenu-list-auto-resize t)     ; 項目数に合わせて自動リサイズ
+
+  ;; nov-mode（EPUB リーダー）対策：
+  ;; nov.el の imenu インデックスは、複数ファイルにまたがる目次項目の位置情報として
+  ;; "c0.xhtml" のような文字列（内部ファイル名）を持つことがあり、
+  ;; imenu-list が期待する marker/number ではないため
+  ;; バックグラウンドタイマー実行中の imenu-list-update が
+  ;; (wrong-type-argument number-or-marker-p "c0.xhtml") で失敗し続けることがある。
+  ;; タイマー起動時のエラーで壊れないよう、更新処理をエラー握りつぶしでラップする。
+  (defun my/imenu-list-update-safe (orig-fun &rest args)
+    (condition-case nil
+        (apply orig-fun args)
+      (wrong-type-argument nil)))
+  (advice-add 'imenu-list-update :around #'my/imenu-list-update-safe))
 
 ;; Markdown を開いたら自動でサイドバーを表示する
 ;; （markdown-mode は imenu-generic-expression を自前でセットするため
@@ -2256,7 +2283,10 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
   (add-hook 'howm-mode-hook 'my-howm-make-hashtag-buttons)
 
   ;; キーバインド：C-c # でタグ検索
-  (define-key howm-mode-map (kbd "C-c #") 'my-howm-search-hashtag-at-point))
+  (define-key howm-mode-map (kbd "C-c #") 'my-howm-search-hashtag-at-point)
+
+  ;; howm-kill-all 実行後にミニバッファのプロンプトをクリアする
+  (advice-add 'howm-kill-all :after (lambda (&rest _) (message nil))))
 
 
 ;; ④ Cosense × Markdown ハイブリッド・シンタックスハイライト
