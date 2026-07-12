@@ -19,9 +19,60 @@
 
 ;; M-x customize の設定を専用ファイルに分離（init.el への自動書き込みを防止）
 ;; これにより custom-set-variables / custom-set-faces は custom.el に書かれる
+;; （※実際のロード処理は、パッケージ初期化後の競合を防ぐため init.el の末尾で行います）
 (setq custom-file (expand-file-name "custom.el" user-emacs-directory))
-(when (file-exists-p custom-file)
-  (load custom-file nil t))
+
+;; 🌟 終了時の固まり対策（共通ローカルキャッシュ ＋ USBへの非同期同期）
+;; user-emacs-directory は USB 等のポータブル/ネットワークドライブ上にある
+;; ことがあり、そこへ終了時に直接・同期的に書き込むと、応答の遅いドライブで
+;; 固まる原因になります。
+;; そこで「終了時に自動保存する系」のファイル（frame位置、scratch、履歴等）は、
+;; ① まず高速な Windows ローカルの一時ディレクトリに即座に書き込み（＝Emacsの
+;;    終了はここでは絶対に固まらない）、
+;; ② その後、書き込んだ内容を非同期のバックグラウンドプロセスで USB 側にも
+;;    コピーする（完了を待たないので、これも Emacs の終了をブロックしない）
+;; という2段構成にすることで、「USB側にもデータが残ってほしい」という要望と
+;; 「終了時に固まってほしくない」という要件を両立させます。
+;; （USBが低速・未接続でもコピーが失敗するだけで、Emacs自体は影響を受けません）
+;;
+;; 🌟 新規フォルダは作らない方針
+;; %LOCALAPPDATA%\emacs\ のような専用フォルダを新設せず、Windowsに元々ある
+;; 一時ディレクトリ（temporary-file-directory、通常は %TEMP%）を直接使う。
+;; ファイル名には "emacs-portable-" というプレフィックスを付け、
+;; 他アプリの一時ファイルと名前が衝突しないようにする。
+(defvar my/local-cache-dir
+  temporary-file-directory
+  "終了時に自動保存する系のファイルを、まず即座に書き込むローカルディレクトリ。
+新規フォルダを作らないよう、Windows標準の一時ディレクトリをそのまま使う。")
+
+(defun my/local-cache-file (name)
+  "NAME に対応する、ローカル一時ディレクトリ上のファイルパスを返す。
+他アプリのファイルと衝突しないよう \"emacs-portable-\" を前置する。"
+  (expand-file-name (concat "emacs-portable-" name) my/local-cache-dir))
+
+(defun my/async-copy-to-usb (local-file usb-file)
+  "LOCAL-FILE の内容を非同期で USB-FILE へコピーする。
+コピー完了を待たずに即座に返るため、Emacsの終了処理をブロックしない。
+USBが低速・未接続の場合はコピーが失敗するだけで、Emacs側には影響しない。"
+  (when (file-exists-p local-file)
+    (ignore-errors (make-directory (file-name-directory usb-file) t))
+    (let ((proc (ignore-errors
+                  (start-process "my-usb-sync" nil "cmd" "/c" "copy" "/y"
+                                 (convert-standard-filename local-file)
+                                 (convert-standard-filename usb-file)))))
+      (when proc
+        ;; Emacs終了時にこのプロセスの完了を待たせない／確認させない
+        (set-process-query-on-exit-flag proc nil)))))
+
+(defun my/maybe-pull-from-usb (local-file usb-file)
+  "起動時、LOCAL-FILE がまだ無ければ USB-FILE から一度だけ取り込む。
+別のPCでこのUSBを挿した直後など、ローカルキャッシュがまだ無い場合に、
+USB側に残っている前回の状態を引き継ぐためのものです。"
+  (when (and (not (file-exists-p local-file))
+             (file-exists-p usb-file))
+    (ignore-errors
+      (make-directory (file-name-directory local-file) t)
+      (copy-file usb-file local-file t))))
 
 
 ;; =====================================================================
@@ -62,8 +113,8 @@
 (set-keyboard-coding-system 'utf-8)
 (set-selection-coding-system 'utf-16le-dos)
 
-;; 「yes/no」を「y/n」の1文字で済ます
-(fset 'yes-or-no-p 'y-or-n-p)
+;; 「yes/no」を「y/n」の1文字で済ます（Emacs 28+ の正式な書き方）
+(setq use-short-answers t)
 
 ;; ナローイング機能（編集範囲の限定）を有効化
 (put 'narrow-to-region 'disabled nil)
@@ -74,12 +125,71 @@
 ;; バックアップファイル（〜付き）を作らない
 (setq make-backup-files nil)
 
+;; ロックファイル（.#filename）を作らない
+;; make-backup-files と同じ思想。USB/ネットワークドライブ上に余計な
+;; ファイルを残したくない今回の方針にも合う。
+(setq create-lockfiles nil)
+
+;; Dired等でファイルを削除する際、完全削除ではなくWindowsのごみ箱に送る
+;; （誤操作からの復旧が効くようにする）
+(setq delete-by-moving-to-trash t)
+
+;; サブプロセスからの読み込みバッファを増やし、応答をもたつかせない
+;; （gptel / ripgrep・fd 経由の検索 / conpty / Antigravity CLI など、
+;;   外部プロセスとのやり取りが多い構成のため）
+(setq read-process-output-max (* 1024 1024)) ; 1MB
+
+;; 実行中の外部プロセスがあっても、終了時に確認ダイアログを出さない
+;; （gptel / conpty / GhostText連携 / xdoc2txt など外部プロセスを多用するため、
+;;   確認待ちで終了処理が止まっているのを「固まった」と誤認しやすい）
+(setq confirm-kill-processes nil)
+
+;; フレームサイズをピクセル単位で指定できるようにする
+;; （frame-geometry.el による前回サイズの復元を、文字セル単位の
+;;   丸め誤差なく正確に行うため）
+(setq frame-resize-pixelwise t)
+
+;; タブ幅を4にする（デフォルトは8で間延びして見えるため）
+(setq-default tab-width 4)
+
+;; ディレクトリ作成などでWindowsネイティブのダイアログを出さず、
+;; 常にミニバッファでの操作に統一する
+(setq use-dialog-box nil)
+(setq use-file-dialog nil)
+
+;; ミニバッファ履歴（savehist）の上限と重複排除
+(setq history-length 1000)
+(setq history-delete-duplicates t)
+
+;; 100MBまでは警告なしでファイルを開く
+;; （画像コレクションやアーカイブを扱う際に地味に便利）
+(setq large-file-warning-threshold 100000000)
+
+;; スクロール時の描画を一部省略して高速化する
+;; （pixel-scroll-precision-mode と組み合わせて使う）
+(setq fast-but-imprecise-scrolling t)
+
+;; コメントやdescribe-function等の表示で使われる引用符をストレートクォートに統一する
+(setq text-quoting-style 'straight)
+
 ;; 現代的なアプリのような滑らかなスクロール (Emacs 29+)
 (when (fboundp 'pixel-scroll-precision-mode)
   (pixel-scroll-precision-mode 1))
 
 ;; 外部でのファイル変更を自動検知して反映
 (global-auto-revert-mode 1)
+
+;; 同名バッファをディレクトリ名で区別する（<2> のような番号ではなく
+;; dir/file.txt のような表示にする）
+(use-package uniquify
+  :ensure nil
+  :custom
+  (uniquify-buffer-name-style 'forward))
+
+;; 1行が異常に長いファイル（minifyされたJS・巨大ログ等）を開いたときの
+;; フリーズ防止（該当ファイルは自動的に軽量表示に切り替わる）
+(when (fboundp 'global-so-long-mode)
+  (global-so-long-mode 1))
 
 ;; 次回ファイルを開いた時に、前回のカーソル位置から再開
 (use-package saveplace
@@ -93,15 +203,19 @@
   ;; ============================================================
 
   ;; 保存先を Windows のローカル AppData に固定する
-  ;; （USB ドライブ上の .emacs.d に書くと固まる環境への対策）
+  ;; （USB ドライブ上の .emacs.d に直接書くと固まる環境への対策）
   (setq save-place-file
-        (expand-file-name "emacs/save-place" (or (getenv "LOCALAPPDATA") "c:/Temp")))
+        (my/local-cache-file "save-place"))
 
-  ;; 保存先ディレクトリが存在しない場合は作成する
-  (make-directory (file-name-directory save-place-file) t)
+  ;; USB側（ポータブルディレクトリ）の対応ファイル。
+  ;; 起動時にローカルキャッシュが無ければここから取り込み、
+  ;; 終了時にはローカル保存後、非同期でここへコピーし返す。
+  (defvar my/save-place-usb-file
+    (expand-file-name "save-place" user-emacs-directory))
+  (my/maybe-pull-from-usb save-place-file my/save-place-usb-file)
 
   (defun my/save-place-save-safe ()
-    "タイムアウト付きで save-place を保存します。
+    "save-place をローカルへ安全に保存し、USBへは非同期でコピーします。
 with-timeout はファイルI/O中に効かないため、condition-case で
 書き込みエラーを握りつぶして確実に終了できるようにします。"
     (condition-case err
@@ -109,7 +223,8 @@ with-timeout はファイルI/O中に効かないため、condition-case で
           ;; ローカルファイルへの書き込みなので通常は即座に終わる
           (save-place-kill-emacs-hook))
       (error
-       (message "save-place の保存をスキップしました: %s" (error-message-string err)))))
+       (message "save-place の保存をスキップしました: %s" (error-message-string err))))
+    (my/async-copy-to-usb save-place-file my/save-place-usb-file))
 
   ;; 標準フックを外して安全版を登録
   (remove-hook 'kill-emacs-hook #'save-place-kill-emacs-hook)
@@ -143,31 +258,65 @@ with-timeout はファイルI/O中に効かないため、condition-case で
 ;; ─ バッファは復元しない。位置・サイズだけ保存する。
 ;; =====================================================================
 
+(defvar my/frame-geometry-file
+  (my/local-cache-file "frame-geometry.el")
+  "フレーム位置・サイズを保存するファイル（ローカルキャッシュ側）。
+USB等のポータブルドライブへの直接書き込みで終了時に固まらないよう、
+まずローカルの AppData 配下に書き込む。")
+
+(defvar my/frame-geometry-usb-file
+  (expand-file-name "frame-geometry.el" user-emacs-directory)
+  "フレーム位置・サイズのUSB（ポータブルディレクトリ）側コピー。")
+
+;; 別のPCでこのUSBを挿した直後などは、ローカルキャッシュにまだ
+;; 何もないので、あればUSB側から一度だけ取り込んでおく
+(my/maybe-pull-from-usb my/frame-geometry-file my/frame-geometry-usb-file)
+
 (defun my/save-frame-geometry ()
-  "終了時にフレームの位置とサイズを保存します。"
-  (let* ((frame  (selected-frame))
-         (params (list (cons 'left   (frame-parameter frame 'left))
-                       (cons 'top    (frame-parameter frame 'top))
-                       (cons 'width  (frame-parameter frame 'width))
-                       (cons 'height (frame-parameter frame 'height))))
-         (file   (expand-file-name "frame-geometry.el" user-emacs-directory)))
-    (with-temp-file file
-      (insert ";; 自動生成ファイル。手動で編集しないでください。\n")
-      (insert (format "(setq initial-frame-alist '%S)\n" params)))))
+  "終了時にフレームの位置とサイズをローカルへ保存し、USBへは非同期でコピーします。
+書き込み先はローカルディスクだが、念のためエラーを握りつぶして
+確実に終了できるようにする（save-place と同じ安全策）。"
+  (condition-case err
+      (let* ((frame  (selected-frame))
+             (params (list (cons 'left   (frame-parameter frame 'left))
+                           (cons 'top    (frame-parameter frame 'top))
+                           (cons 'width  (frame-parameter frame 'width))
+                           (cons 'height (frame-parameter frame 'height)))))
+        (with-temp-file my/frame-geometry-file
+          (insert ";; 自動生成ファイル。手動で編集しないでください。\n")
+          (insert (format "(setq initial-frame-alist '%S)\n" params))))
+    (error
+     (message "frame-geometry の保存をスキップしました: %s" (error-message-string err))))
+  (my/async-copy-to-usb my/frame-geometry-file my/frame-geometry-usb-file))
 
 ;; 起動時に復元・終了時に保存
 ;; early-init.el がない環境では init.el の先頭で直接ロードするのが確実
-(let ((file (expand-file-name "frame-geometry.el" user-emacs-directory)))
-  (when (file-exists-p file)
-    (load file nil t)))
+(when (file-exists-p my/frame-geometry-file)
+  (load my/frame-geometry-file nil t))
 (add-hook 'kill-emacs-hook #'my/save-frame-geometry)
 
 ;; *scratch* バッファの内容を終了時に保存し、起動時に復元する
 (use-package persistent-scratch
   :config
+  ;; 🌟 デフォルトの保存先は user-emacs-directory 配下（＝ポータブルドライブ上）
+  ;; になるため、終了時の固まり対策としてまずローカルキャッシュに変更する。
+  (setq persistent-scratch-save-file
+        (my/local-cache-file "persistent-scratch"))
+  (defvar my/persistent-scratch-usb-file
+    (expand-file-name "persistent-scratch" user-emacs-directory))
+  (my/maybe-pull-from-usb persistent-scratch-save-file my/persistent-scratch-usb-file)
+
   (persistent-scratch-setup-default)
   ;; 自動保存（idle時・バッファ変更時）も有効にする
-  (persistent-scratch-autosave-mode 1))
+  (persistent-scratch-autosave-mode 1)
+
+  ;; persistent-scratch-save が呼ばれる度（終了時／idle自動保存時）に
+  ;; USBへも非同期でコピーする。終了を待たせないだけでなく、
+  ;; 普段の自動保存のタイミングでもUSB側が追従してくれる。
+  (advice-add 'persistent-scratch-save :after
+              (lambda (&rest _)
+                (my/async-copy-to-usb persistent-scratch-save-file
+                                       my/persistent-scratch-usb-file))))
 
 
 ;; =====================================================================
@@ -260,6 +409,13 @@ with-timeout はファイルI/O中に効かないため、condition-case で
 ;; =====================================================================
 ;; 3. 外観（テーマ・フォント・UI）
 ;; =====================================================================
+
+;; 🌟 Iceberg テーマ（conao3/iceberg-theme.el）
+;; パッケージのインストールとテーマファイルの作成のみ行い、自動適用はしません。
+(use-package iceberg-theme
+  :ensure t
+  :config
+  (iceberg-theme-create-theme-file))
 
 ;; タブバー設定の初期化（過去のバグリセット）
 (setq default-frame-alist (assq-delete-all 'tab-bar-lines default-frame-alist))
@@ -442,14 +598,25 @@ with-timeout はファイルI/O中に効かないため、condition-case で
 
   ;; ============================================================
   ;; 🌟 終了時の固まり対策
-  ;; recentf-save-list を kill-emacs-hook から外し、
-  ;; タイムアウト付きの安全な版に差し替える
+  ;; recentf-save-file のデフォルトは user-emacs-directory 配下
+  ;; （＝USB等のポータブルドライブ上）になるため、まずローカルキャッシュに
+  ;; 保存先を変更する（with-timeout は同期I/Oのブロック中には効かないため、
+  ;; これが本質的な対策）。保存後にUSBへは非同期でコピーする。
   ;; ============================================================
+  (setq recentf-save-file
+        (my/local-cache-file "recentf"))
+  (defvar my/recentf-usb-file
+    (expand-file-name "recentf" user-emacs-directory))
+  (my/maybe-pull-from-usb recentf-save-file my/recentf-usb-file)
+
   (defun my/recentf-save-safe ()
-    "タイムアウト付きで recentf を保存します。3秒以内に終わらなければスキップします。"
+    "recentf をローカルへ保存し、USBへは非同期でコピーします。
+念のためタイムアウトも残していますが、ローカルディスクへの書き込みなので
+通常は即座に終わります。"
     (let ((inhibit-message t))          ; 「Saving recentf...」メッセージを抑制
       (with-timeout (3 (message "recentf の保存をスキップしました（タイムアウト）"))
-        (recentf-save-list))))
+        (recentf-save-list)))
+    (my/async-copy-to-usb recentf-save-file my/recentf-usb-file))
 
   ;; 標準フックを外して安全版を登録
   (remove-hook 'kill-emacs-hook #'recentf-save-list)
@@ -461,9 +628,31 @@ with-timeout はファイルI/O中に効かないため、condition-case で
 (use-package savehist
   :ensure nil
   :init
-  (setq savehist-file (expand-file-name "savehist" user-emacs-directory))
+  ;; 🌟 user-emacs-directory（ポータブルドライブ上）への直接書き込みは
+  ;; 終了時に固まる原因になるため、まずローカルキャッシュに保存先を変更する。
+  (setq savehist-file (my/local-cache-file "savehist"))
+  (defvar my/savehist-usb-file
+    (expand-file-name "savehist" user-emacs-directory))
+  (my/maybe-pull-from-usb savehist-file my/savehist-usb-file)
+
   (setq savehist-additional-variables '(file-name-history)) ; ファイルを開いた履歴を強制記録
-  (savehist-mode 1))
+  (savehist-mode 1)
+  :config
+  (defun my/savehist-autosave-safe ()
+    "エラーを握りつぶして確実に終了できるようにした savehist の保存版。"
+    (condition-case err
+        (let ((inhibit-message t))
+          (savehist-autosave))
+      (error
+       (message "savehist の保存をスキップしました: %s" (error-message-string err)))))
+  (remove-hook 'kill-emacs-hook #'savehist-autosave)
+  (add-hook    'kill-emacs-hook #'my/savehist-autosave-safe)
+
+  ;; savehist-autosave は終了時だけでなく idle タイマーでも呼ばれるため、
+  ;; 関数自体にadviceを付けて、保存の度にUSBへも非同期でコピーする。
+  (advice-add 'savehist-autosave :after
+              (lambda (&rest _)
+                (my/async-copy-to-usb savehist-file my/savehist-usb-file))))
 
 
 ;; =====================================================================
@@ -513,23 +702,37 @@ with-timeout はファイルI/O中に効かないため、condition-case で
 
 (global-whitespace-mode 1)
 
-;; 🌟 point3: 色をテーマに完全連動させる
-;; テーマが持つ「警告用（warning）」や「特殊文字用（escape-glyph）」のフェイスを
-;; そのまま継承（コピー）するため、ライト/ダークどちらのテーマに変えても100%調和します。
-(set-face-attribute 'whitespace-tab nil
-                    :background 'unspecified
-                    :foreground (face-attribute 'font-lock-warning-face :foreground)
-                    :inverse-video nil
-                    :weight 'bold)
+;; 🌟 point3: whitespaceの見た目をテーマの色から動的に生成する
+;; whitespace.el のデフォルトフェイスは "grey20" 等の固定背景色を
+;; 敷く仕様になっており、iceberg のような青みがかった背景から浮いて
+;; 目立ちすぎてしまいます。そこで背景ボックスをやめ、テーマの背景色から
+;; 「少しだけ明るい/暗い」文字色を自動生成して馴染ませます（beaconの
+;; テーマ追従と同じ仕組みなので、iceberg以外に切り替えても自動追従します）。
+(defun my/update-whitespace-faces (&rest _)
+  "現在のテーマの背景色から、whitespaceの表示色を控えめに再生成する。"
+  (let* ((bg (face-background 'default nil t))
+         (fg (face-foreground 'default nil t))
+         (dark (eq (frame-parameter nil 'background-mode) 'dark))
+         ;; 背景よりわずかに明るい/暗い程度の、主張しない色を作る
+         (tab-color   (color-lighten-name bg (if dark 18 -10)))
+         (space-color (color-lighten-name bg (if dark 12 -6))))
+    (dolist (spec `((whitespace-tab   . ,tab-color)
+                     (whitespace-space . ,space-color)))
+      (set-face-attribute (car spec) nil
+                           :background 'unspecified   ; 灰色の箱をやめる
+                           :foreground (cdr spec)
+                           :underline nil
+                           :weight 'normal
+                           :inverse-video nil))
+    ;; 行末の余分な空白だけは視認性を優先し、テーマのwarning系色に寄せる
+    (set-face-attribute 'whitespace-trailing nil
+                         :background 'unspecified
+                         :foreground (or (face-foreground 'font-lock-warning-face nil t) fg)
+                         :underline t)))
 
-(set-face-attribute 'whitespace-space nil
-                    :background 'unspecified
-                    :foreground (face-attribute 'escape-glyph :foreground)
-                    :inverse-video nil
-                    :weight 'normal)
-
-;; 行末のスペース（半角・全角）をハイライト表示
-(setq-default show-trailing-whitespace t)
+;; 初期反映 + テーマ切り替え時にも自動追従
+(my/update-whitespace-faces)
+(add-hook 'enable-theme-functions #'my/update-whitespace-faces)
 
 ;; 🌟 サクラエディタ風の正規表現キーワード強調表示（テキスト・Markdown用）
 ;; 各種括弧や引用符（「」『』()（）[]［］【】《》<>〈〉"" '' など）や丸数字①-⑳を色分けします。
@@ -3388,7 +3591,7 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
               (set-buffer-file-coding-system 'utf-8 t))))
 
 ;; =====================================================================
-;; 19. リアルタイム置換 (visual-replace)
+;; 24. リアルタイム置換 (visual-replace)
 ;; ─ 標準の M-% (通常置換) や C-M-% (正規表現置換) の挙動を置き換え、
 ;;   入力中にリアルタイムでバッファ上にプレビューを表示します
 ;; =====================================================================
@@ -3501,7 +3704,7 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
   (define-key minibuffer-local-map (kbd "M-%") 'my/visual-replace-from-minibuffer))
 
 ;; =====================================================================
-;; 20. 範囲外のグレーアウト（ソフトナローイング：部分編集）
+;; 25. 範囲外のグレーアウト（ソフトナローイング：部分編集）
 ;; ─ 選択範囲に限定（Narrow）した際、範囲外を非表示にするのではなく、
 ;;   グレーアウト（影付き）で表示したまま編集・移動制限をかけます
 ;; =====================================================================
@@ -3570,7 +3773,7 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
 
 
 ;; =====================================================================
-;; 18. dmacro (Dynamic Macro) — 繰り返しの自動マクロ実行
+;; 26. dmacro (Dynamic Macro) — 繰り返しの自動マクロ実行
 ;; =====================================================================
 
 (use-package dmacro
@@ -3580,5 +3783,13 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
   (setq dmacro-key (kbd "C-t"))
   :config
   (global-dmacro-mode 1))
+
+;; =====================================================================
+;; 最終処理: GUIカスタマイズ設定 (custom.el) のロード
+;; ─ パッケージの読み込みがすべて完了した後にロードすることで、
+;;   外部パッケージテーマ（ef-themes 等）の適用失敗を防ぎます。
+;; =====================================================================
+(when (and custom-file (file-exists-p custom-file))
+  (load custom-file nil t))
 
 
