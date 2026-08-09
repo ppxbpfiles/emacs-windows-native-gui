@@ -283,6 +283,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
                            (cons 'width  (frame-parameter frame 'width))
                            (cons 'height (frame-parameter frame 'height)))))
         (with-temp-file my/frame-geometry-file
+          (insert ";; -*- lexical-binding: t; -*-\n")
           (insert ";; 自動生成ファイル。手動で編集しないでください。\n")
           (insert (format "(setq initial-frame-alist '%S)\n" params))))
     (error
@@ -1243,7 +1244,7 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
       (progn
         (howm-kill-all)
         ;; *Ilist* は howm-kill-all の対象外なので別途閉じる
-        (when-let ((ilist-win (get-buffer-window "*Ilist*")))
+        (when-let* ((ilist-win (get-buffer-window "*Ilist*")))
           (delete-window ilist-win))
         (message nil))  ; 🌟 ミニバッファのメッセージ（プロンプト）をクリア
     (howm-menu)))
@@ -1308,7 +1309,7 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
         (or (executable-find "cmigemo")
             (expand-file-name "bin/cmigemo.exe" (expand-file-name ".." user-emacs-directory))))
   (setq migemo-options '("-q" "-e"))
-  (if-let ((cmigemo-path (executable-find "cmigemo")))
+  (if-let* ((cmigemo-path (executable-find "cmigemo")))
       (progn
         (setq migemo-dictionary
               (expand-file-name "dict/utf-8/migemo-dict"
@@ -1468,7 +1469,7 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
 (defun my/consult-ripgrep-project ()
   "現在の project.el ルートを対象に consult-ripgrep を実行します。"
   (interactive)
-  (if-let ((project (project-current)))
+  (if-let* ((project (project-current)))
       (consult-ripgrep (project-root project))
     (call-interactively #'consult-ripgrep)))
 
@@ -1996,7 +1997,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   (defun my/consult-fd-project ()
     "現在の project.el ルートを対象に consult-fd を実行します。"
     (interactive)
-    (if-let ((project (project-current)))
+    (if-let* ((project (project-current)))
         (consult-fd (project-root project))
       (call-interactively #'consult-fd)))
 
@@ -2068,7 +2069,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
               (require 'color-moccur)
               (require 'moccur-edit)
               (moccur pattern)
-              (when-let ((moccur-buf (get-buffer "*Moccur*")))
+              (when-let* ((moccur-buf (get-buffer "*Moccur*")))
                 (pop-to-buffer moccur-buf)
                 (moccur-edit-mode-in)
                 (message "moccur-edit でフィルタ中: C-c C-c で保存")))
@@ -2076,7 +2077,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
           (progn
             (require 'replace) ;; occur/occur-edit 用
             (occur pattern)
-            (when-let ((occur-buf (get-buffer "*Occur*")))
+            (when-let* ((occur-buf (get-buffer "*Occur*")))
               (pop-to-buffer occur-buf)
               (occur-edit-mode)
               (message "occur-edit でフィルタ中: C-c C-c で保存"))))))))
@@ -2524,7 +2525,7 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
 ;; タイミング問題への対処：howm-mode-hook で Ilist ウィンドウを閉じる
 (add-hook 'howm-mode-hook
           (lambda ()
-            (when-let ((ilist-win (get-buffer-window "*Ilist*")))
+            (when-let* ((ilist-win (get-buffer-window "*Ilist*")))
               (delete-window ilist-win))))
 
 ;; ⑤ 画像のインライン表示（iimage-mode）
@@ -2551,7 +2552,7 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
       (expand-file-name "img" (file-name-directory (buffer-file-name)))))
 
   (defun my-org-download-set-dir ()
-    (when-let ((dir (my-org-download-dir)))
+    (when-let* ((dir (my-org-download-dir)))
       (setq-local org-download-image-dir dir)))
   (add-hook 'howm-mode-hook 'my-org-download-set-dir)
   (add-hook 'markdown-mode-hook 'my-org-download-set-dir)
@@ -2893,8 +2894,10 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
     (when (and file (file-exists-p file))
       (find-file file))))
 
-(defun my/nov-open-kindle-on-the-fly (filename)
-  "Calibre の ebook-convert を使用して、AZW3/AZW をバックグラウンドで EPUB に変換し、開きます。"
+(defun my/nov-open-kindle-on-the-fly (filename &optional original-buffer)
+  "Calibre の ebook-convert を使用して、AZW3/AZW をバックグラウンドで EPUB に変換し、開きます。
+ORIGINAL-BUFFER を指定した場合、変換・オープンが完了した後にそのバッファを閉じます
+（auto-mode-alist 経由で自動変換したときの、元の AZW/AZW3 バイナリバッファの後始末用）。"
   (interactive "fKindle (AZW3/AZW) ファイルを選択: ")
   (let* ((temp-dir (temporary-file-directory))
          (epub-file (expand-file-name (concat (file-name-base filename) ".epub") temp-dir))
@@ -2917,15 +2920,20 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
                      (if (file-exists-p epub-file)
                          (progn
                            (message "変換完了！書籍を開きます。")
-                           (find-file epub-file))
+                           (find-file epub-file)
+                           ;; 変換元の AZW/AZW3 バイナリバッファは役目を終えたので閉じる
+                           (when (and original-buffer (buffer-live-p original-buffer))
+                             (kill-buffer original-buffer)))
                        (message "エラー: 変換後のファイルが見つかりません。")))))))))
 
 ;; .azw と .azw3 ファイルを C-x C-f で開いたときにも自動でこの関数にルーティングする
 (defun my/nov-open-kindle-on-the-fly-auto ()
-  "auto-mode-alist 経由で AZW/AZW3 ファイルを開くためのラッパー。"
-  (let ((filename (buffer-file-name)))
+  "auto-mode-alist 経由で AZW/AZW3 ファイルを開くためのラッパー。
+EPUB への変換とオープンが終わったら、元の AZW/AZW3 バッファは自動で閉じる。"
+  (let ((filename (buffer-file-name))
+        (original-buffer (current-buffer)))
     (when filename
-      (my/nov-open-kindle-on-the-fly filename))))
+      (my/nov-open-kindle-on-the-fly filename original-buffer))))
 
 (dolist (pattern '("\\.azw3\\'" "\\.azw\\'"))
   (add-to-list 'auto-mode-alist (cons pattern #'my/nov-open-kindle-on-the-fly-auto)))
@@ -2947,7 +2955,17 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
     (when filename
       ;; 一旦バッファをクリアし、プレーンテキスト表示にする
       (setq-local buffer-file-name nil)        ; 保存ダイアログが出ないよう nil に設定
-      (let ((inhibit-read-only t))
+      (let ((inhibit-read-only t)
+            ;; xdoc2txt には -8 で UTF-8 出力させているので、Emacs側の
+            ;; デコードも UTF-8 に固定する（未指定だと環境依存のコーディング
+            ;; システム [cp932 等] で解釈されて文字化けすることがある）。
+            ;; pandoc の出力も常に UTF-8 なので同様に固定してよい。
+            (coding-system-for-read 'utf-8)
+            (coding-system-for-write 'utf-8))
+        ;; 閲覧専用バッファであり Undo は不要。大きな PDF/Office 文書だと
+        ;; erase-buffer + 巨大テキストの insert で undo-outer-limit を超えて
+        ;; 警告が出るため、抽出処理の間は Undo 記録自体を止めておく。
+        (buffer-disable-undo)
         (erase-buffer)
         (message "テキストを抽出中...")
         (cond
@@ -2961,6 +2979,9 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
          (t
           (insert "エラー: xdoc2txt または pandoc が見つかりません。\n"
                   "バイナリファイルのテキスト抽出機能を利用するには、いずれかの実行ファイルを PATH に追加してください。")))
+        ;; バッファ自体のコーディングシステムも UTF-8 に固定しておく
+        ;; （保存はしないが、表示・再検索・コピー時の扱いを安定させるため）
+        (set-buffer-file-coding-system 'utf-8 t)
         (goto-char (point-min))
         (set-buffer-modified-p nil)
         (view-mode 1)
@@ -2968,7 +2989,9 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
 
 ;; 各種ドキュメントファイルを C-x C-f で開いたときに自動でテキスト閲覧モードにする
 (dolist (pattern '("\\.docx\\'" "\\.pdf\\'" "\\.xlsx\\'" "\\.pptx\\'"
-                   "\\.doc\\'" "\\.xls\\'" "\\.ppt\\'"))
+                   "\\.doc\\'" "\\.xls\\'" "\\.ppt\\'"
+                   "\\.jtd\\'" "\\.jtt\\'"   ; 一太郎
+                   "\\.eml\\'"))             ; メール (Outlook Express形式)
   (add-to-list 'auto-mode-alist (cons pattern #'my/document-text-view)))
 
 (defun my/pandoc-convert-to-format (out-format)
