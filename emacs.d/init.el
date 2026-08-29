@@ -576,6 +576,9 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
   :config
   (setq nyan-wavy-trail t)
   (setq nyan-minimum-window-width 40)
+  ;; 既定は0.2秒(1秒に5回)ごとにモードライン全体を再描画している。
+  ;; 1秒に1回に落として再描画頻度を1/5にする。
+  (setq nyan-animation-frame-interval 1.0)
   (nyan-mode 1)
   (nyan-start-animation))
 
@@ -835,7 +838,8 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
                 'help-echo full-path))) ; 💡 マウスを乗せたときに Windows 風にフルパスをポップアップ
 
 ;; 時計の表示形式
-(setq display-time-string-forms '((format-time-string "%Y/%m/%d(%a) %H:%M")))
+(setq display-time-string-forms '((format-time-string "%Y/%m/%d(%a) %H:%M:%S")))
+(setq display-time-interval 1)   ; 秒表示するので1秒ごとに更新する(既定は60秒)
 (setq display-time-24hr-format t)
 (setq display-time-mail-string "")
 (display-time-mode 1)
