@@ -6,6 +6,8 @@
 ;; Package-Requires: ((emacs "26.1"))
 ;; Keywords: terminals, processes, windows
 ;; URL: https://github.com/user/emacs-conpty
+;;
+;; This is a modified version of v0.1.0 (not the original).
 
 ;;; Commentary:
 
