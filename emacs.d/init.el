@@ -352,6 +352,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
   (("<home>" . dashboard-refresh-buffer)
    :map dashboard-mode-map
    ("<home>" . quit-window)
+   ("RET" . my/dashboard-safe-return)
    ("o" . hydra-launcher/body)
    ("e" . consult-locate)
    ("s" . my/consult-ripgrep-project)
@@ -364,6 +365,16 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
    ("w" . hydra-window/body)
    ("F" . hydra-file/body))
   :config
+  ;; クイックメニュー欄など、ボタン化されていない行でRETを押すと
+  ;; dashboard-returnが読み取り専用バッファを操作しようとしてエラーになるため、
+  ;; ボタンが実際にある位置でだけ dashboard-return を呼ぶようにする。
+  (defun my/dashboard-safe-return ()
+    "ポイント位置にボタンがあるときだけ dashboard-return を実行する。"
+    (interactive)
+    (if (button-at (point))
+        (dashboard-return)
+      (message "この行には項目がありません（ショートカットキーをお使いください）")))
+
   ;; 起動時にダッシュボードを表示する
   (dashboard-setup-startup-hook)
   
@@ -690,6 +701,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
 
 ;; 全角スペース・TABをテーマに合わせた色で可視化（半角スペースは非表示）
 (require 'whitespace)
+(require 'color)
 
 ;; 🌟 point1: space-mark を有効にしつつ、styleから「spaces（半角）」を除外。
 ;; これにより「全角スペース」と「TAB」だけがwhitespaceの管理対象になります。
@@ -711,9 +723,13 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
 ;; テーマ追従と同じ仕組みなので、iceberg以外に切り替えても自動追従します）。
 (defun my/update-whitespace-faces (&rest _)
   "現在のテーマの背景色から、whitespaceの表示色を控えめに再生成する。"
-  (let* ((bg (face-background 'default nil t))
+  (let* ((dark (eq (frame-parameter nil 'background-mode) 'dark))
+         (bg-raw (face-background 'default nil t))
+         (bg (if (and (stringp bg-raw)
+                      (ignore-errors (color-defined-p bg-raw)))
+                 bg-raw
+               (if dark "#1f2430" "#ffffff")))
          (fg (face-foreground 'default nil t))
-         (dark (eq (frame-parameter nil 'background-mode) 'dark))
          ;; 背景よりわずかに明るい/暗い程度の、主張しない色を作る
          (tab-color   (color-lighten-name bg (if dark 18 -10)))
          (space-color (color-lighten-name bg (if dark 12 -6))))
@@ -1545,13 +1561,13 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
   "
   === WINDOW & BUFFER (M-o w) ===
   [分割]                    [移動・サイズ]              [閉じる]
-  [_2_] 上下に分割          [_o_] 次のウィンドウへ      [_0_] このウィンドウを閉じる
-  [_3_] 左右に分割          [_O_] 前のウィンドウへ      [_1_] 他をすべて閉じる
-                            [_=_] 幅・高さをそろえる    [_k_] バッファを閉じる
-                            [_+_] 高さを広げる          [_K_] バッファ＋ウィンドウを閉じる
-                            [_-_] 高さを縮める
+  [2] 上下に分割          [o] 次のウィンドウへ      [0] このウィンドウを閉じる
+  [3] 左右に分割          [O] 前のウィンドウへ      [1] 他をすべて閉じる
+                            [=] 幅・高さをそろえる    [k] バッファを閉じる
+                            [+] 高さを広げる          [K] バッファ＋ウィンドウを閉じる
+                            [-] 高さを縮める
   ----------------------------------------------------------------------
-  [_q_] 閉じる
+  [q] 閉じる
 "
   ;; 分割
   ("2" split-window-below)
@@ -1673,22 +1689,22 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   "
   === FILE OPERATIONS (M-o F) ===
   [開く・保存]                           [外部アプリで直接開く]
-  [_o_] ファイルを開く                   [_e_] 現在のファイルを外部で開く
-  [_r_] 最近のファイル                   [_E_] 任意のファイルを外部で開く
-  [_s_] 上書き保存                       [_R_] 最近のファイルを外部で開く
-  [_m_] m3u8/m3u を検索して再生
-  [_k_] バッファを閉じる                 [外部コマンド実行 (現在ファイル)]
-                                         [_a_] Antigravity(agy) を cmd で実行
-                                         [_A_] Antigravity(agy) を PowerShell で実行
-                                         [_x_] コマンドを実行 (cmd, %%%%f=パス)
-                                         [_X_] コマンドを実行 (PS, %%%%f=パス)
+  [o] ファイルを開く                   [e] 現在のファイルを外部で開く
+  [r] 最近のファイル                   [E] 任意のファイルを外部で開く
+  [s] 上書き保存                       [R] 最近のファイルを外部で開く
+  [m] m3u8/m3u を検索して再生
+  [k] バッファを閉じる                 [外部コマンド実行 (現在ファイル)]
+                                         [a] Antigravity(agy) を cmd で実行
+                                         [A] Antigravity(agy) を PowerShell で実行
+                                         [x] コマンドを実行 (cmd, %%%%f=パス)
+                                         [X] コマンドを実行 (PS, %%%%f=パス)
                                          [その他]
-                                         [_d_] WinMerge で差分比較
-                                         [_c_] 文字コード指定で開き直す
-                                         [_p_] Pandoc で別形式に変換
-                                         [_K_] EPUBをKindle (azw/azw3) に変換
+                                         [d] WinMerge で差分比較
+                                         [c] 文字コード指定で開き直す
+                                         [p] Pandoc で別形式に変換
+                                         [K] EPUBをKindle (azw/azw3) に変換
   ----------------------------------------------------------------------
-  [_q_] 閉じる
+  [q] 閉じる
 "
   ("o" find-file)
   ("r" consult-recent-file)
@@ -1732,12 +1748,12 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   "
   === OBSIDIAN VAULT (M-o o) ===
   [ファイル操作]                         [検索]
-  [_f_] ファイルを開く                   [_s_] Vault内全文検索 (rg)
-  [_n_] 新規ノート作成                   [_r_] ローマ字全文検索 (Migemo rg)
-  [_i_] リンクを挿入                     [_F_] ファイル名検索 (Migemo)
-  [_c_] リンク先ファイルを作成
+  [f] ファイルを開く                   [s] Vault内全文検索 (rg)
+  [n] 新規ノート作成                   [r] ローマ字全文検索 (Migemo rg)
+  [i] リンクを挿入                     [F] ファイル名検索 (Migemo)
+  [c] リンク先ファイルを作成
   ----------------------------------------------------------------------
-  [_p_] メインメニューに戻る            [_q_] 閉じる
+  [p] メインメニューに戻る            [q] 閉じる
 "
   ("f" (progn (require 'obsidian) (call-interactively #'obsidian-find-file)))
   ("n" (progn (require 'obsidian) (call-interactively #'obsidian-capture)))
@@ -1755,13 +1771,13 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   "
   === MARKDOWN & TAGS (M-o m) ===
   [装飾・タグ打ち]                       [ナビゲーション・リンク]
-  [_1_] 見出し1 (H1)                     [_l_] リンク挿入 (Obsidian風)
-  [_2_] 見出し2 (H2)                     [_i_] 画像リンクの挿入
-  [_b_] 太字 (Bold)                      [_t_] 目次 (TOC) の生成/更新
-  [_k_] 斜体 (Italic)                    [_o_] 見出し検索ジャンプ (consult-outline)
-  [_c_] コードブロック (Code)            [_O_] サイドバー開閉 (imenu-list)
+  [1] 見出し1 (H1)                     [l] リンク挿入 (Obsidian風)
+  [2] 見出し2 (H2)                     [i] 画像リンクの挿入
+  [b] 太字 (Bold)                      [t] 目次 (TOC) の生成/更新
+  [k] 斜体 (Italic)                    [o] 見出し検索ジャンプ (consult-outline)
+  [c] コードブロック (Code)            [O] サイドバー開閉 (imenu-list)
   ----------------------------------------------------------------------
-  [_p_] メインメニューに戻る            [_q_] 閉じる
+  [p] メインメニューに戻る            [q] 閉じる
 "
   ("1" (progn (require 'markdown-mode) (call-interactively #'markdown-insert-header-1)))
   ("2" (progn (require 'markdown-mode) (call-interactively #'markdown-insert-header-2)))
@@ -1781,14 +1797,14 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   "
   === CALC 電卓 (M-o C) ===
   [起動]                                  [入力モード]
-  [_c_] Calc を開く                       [_a_] 代数モード ON  (普通の記法)
-  [_m_] Casual メニュー [電卓内: C-o]     [_r_] RPN モード ON  (スタック式)
+  [c] Calc を開く                       [a] 代数モード ON  (普通の記法)
+  [m] Casual メニュー [電卓内: C-o]     [r] RPN モード ON  (スタック式)
   ----------------------------------------------------------------------
-  [_0_] スタック全消去 (AC)  [直キー: C-u 0 DEL]
+  [0] スタック全消去 (AC)  [直キー: C-u 0 DEL]
   ----------------------------------------------------------------------
   ※ 全設定の初期化（フルリセット）は [C-x * 0] です。
   ----------------------------------------------------------------------
-  [_p_] メインメニューに戻る            [_q_] 閉じる
+  [p] メインメニューに戻る            [q] 閉じる
 "
   ("c" calc)
   ("m" (progn (calc) (casual-calc-tmenu)))
@@ -1810,13 +1826,13 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   "
   === テキスト変換 (M-o T) ===
   [並べ替え・重複]                         [ナローイング]
-  [_s_] 行を昇順ソート         [_S_] 行を降順ソート   [_n_] 選択範囲に限定 (Narrow)
-  [_u_] 重複行を削除 (uniq)                           [_w_] 限定を解除 (Widen)
+  [s] 行を昇順ソート         [S] 行を降順ソート   [n] 選択範囲に限定 (Narrow)
+  [u] 重複行を削除 (uniq)                           [w] 限定を解除 (Widen)
   ----------------------------------------------------------------------
   [文字種変換（選択範囲）]
-  [_z_] 半角 → 全角            [_Z_] 全角 → 半角
+  [z] 半角 → 全角            [Z] 全角 → 半角
   ----------------------------------------------------------------------
-  [_b_] メインメニューに戻る   [_q_] 閉じる
+  [b] メインメニューに戻る   [q] 閉じる
 "
   ("s" (progn (when (use-region-p) (sort-lines nil (region-beginning) (region-end)))))
   ("S" (progn (when (use-region-p) (sort-lines t   (region-beginning) (region-end)))))
@@ -1833,12 +1849,12 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   "
   === カラーマーカー (M-o M) ===
   [マーカー操作]                         [ジャンプ]
-  [_m_] マーカーをトグル（付ける/外す） [_n_] 次のマーカーへ
-  [_k_] マーカーを1つ削除                [_p_] 前のマーカーへ
-  [_u_] 全マーカーを削除                [_d_] 定義箇所へジャンプ
-  [_c_] Casual メニュー（マーカー上で）
+  [m] マーカーをトグル（付ける/外す） [n] 次のマーカーへ
+  [k] マーカーを1つ削除                [p] 前のマーカーへ
+  [u] 全マーカーを削除                [d] 定義箇所へジャンプ
+  [c] Casual メニュー（マーカー上で）
   ----------------------------------------------------------------------
-  [_b_] メインメニューに戻る            [_q_] 閉じる
+  [b] メインメニューに戻る            [q] 閉じる
 "
   ("m" my/marker-put)
   ("k" my/marker-remove-at-point)
@@ -1854,19 +1870,19 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
 (defhydra hydra-launcher (:color blue :hint nil)
   "
   === EMACS NAVIGATOR (M-o) ===
-  [_e_] Everything (PC内検索)      [_m_] Markdown メニュー
-  [_s_] プロジェクト内検索 (rg)    [_o_] Obsidian メニュー
-  [_g_] ファイル名検索 (fd)        [_w_] ウィンドウ操作
-  [_f_] 最近使ったファイル         [_F_] ファイル操作
-  [_r_] ローマ字検索 (Migemo)      [_M_] カラーマーカー
-  [_l_] 単語検索ポップアップ       [_L_] カレンダー (calfw)
-  [_n_] 新しいウィンドウ (Frame)   [_P_] EPUBリーダー (nov)
-  [_z_] Zoxide でファイルを開く    [_d_] 辞書 (Lookup)
-  [_O_] moccur (一括編集)
+  [e] Everything (PC内検索)      [m] Markdown メニュー
+  [s] プロジェクト内検索 (rg)    [o] Obsidian メニュー
+  [g] ファイル名検索 (fd)        [w] ウィンドウ操作
+  [f] 最近使ったファイル         [F] ファイル操作
+  [r] ローマ字検索 (Migemo)      [M] カラーマーカー
+  [l] 単語検索ポップアップ       [L] カレンダー (calfw)
+  [n] 新しいウィンドウ (Frame)   [P] EPUBリーダー (nov)
+  [z] Zoxide でファイルを開く    [d] 辞書 (Lookup)
+  [O] moccur (一括編集)
   ---------------------------------------------------------
-  [_c_] cmd.exe (conpty)           [_p_] PowerShell (conpty)
-  [_C_] 電卓メニュー (Calc)        [_T_] テキスト変換
-  [_q_] 閉じる
+  [c] cmd.exe (conpty)           [p] PowerShell (conpty)
+  [C] 電卓メニュー (Calc)        [T] テキスト変換
+  [q] 閉じる
 "
   ("e" consult-locate)
   ("s" my/consult-ripgrep-project)
@@ -1908,6 +1924,9 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
     (define-key menu-map [hydra-calendar]   '(menu-item "カレンダー" my/open-calendar :keys "M-o L"))
     (define-key menu-map [hydra-file]       '(menu-item "ファイル操作" hydra-file/body :keys "M-o F"))
     (define-key menu-map [hydra-window]     '(menu-item "ウィンドウ操作" hydra-window/body :keys "M-o w"))
+    (define-key menu-map [separator-2b]     '(menu-item "--"))
+    (define-key menu-map [hydra-conpty-cmd] '(menu-item "cmd.exe (conpty)" conpty :keys "M-o c"))
+    (define-key menu-map [hydra-conpty-ps]  '(menu-item "PowerShell (conpty)" conpty-powershell :keys "M-o p"))
     (define-key menu-map [separator-3]      '(menu-item "--"))
     (define-key menu-map [hydra-obsidian]   '(menu-item "Obsidian メニュー" hydra-obsidian/body :keys "M-o o"))
     (define-key menu-map [hydra-markdown]   '(menu-item "Markdown メニュー" hydra-markdown/body :keys "M-o m"))
@@ -2168,6 +2187,164 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
         (setq consult-locate-args (concat (shell-quote-argument es-exe) " -i -p -r"))
       (message "【お知らせ】es.exe が見つかりません。Everything をインストールするか portable/bin/ に置いてください。"))))
 
+
+;; --- YouTube検索 (consult + yt-dlp) ---
+;; yt-dlp の ytsearchN: 擬似URLを利用し、consult でインクリメンタル検索する。
+;; 選択した動画はブラウザで開く。
+;; marginalia で再生時間・投稿者を表示し、候補移動に合わせてサムネイルを
+;; サイドウィンドウにプレビュー表示する（vertico 前提）。
+(defvar my/youtube-search-history nil)
+(defvar my/youtube--thumbnail-buffer-name "*youtube-thumbnail*")
+(defvar my/youtube--thumbnail-cache (make-hash-table :test 'equal)
+  "サムネイル画像URLから image オブジェクトへのキャッシュ。値が'pendingの間は取得中。")
+
+(defvar my/youtube--yt-dlp-exe
+  ;; fd.exe / es.exe と同じ探索順: 1) PATH 2) ポータブル bin/
+  (or (executable-find "yt-dlp")
+      (executable-find "yt-dlp.exe")
+      (let ((portable (expand-file-name "bin/yt-dlp.exe"
+                                        (expand-file-name ".." user-emacs-directory))))
+        (and (file-exists-p portable) portable)))
+  "yt-dlp実行ファイルへのパス。見つからない場合はnil。")
+
+(unless my/youtube--yt-dlp-exe
+  (message "【お知らせ】yt-dlp が見つかりません。PATH に通すか portable/bin/ に yt-dlp.exe を置いてください。"))
+
+(defun my/youtube--format-duration (seconds)
+  "SECONDS を \"h:mm:ss\" または \"m:ss\" 形式の文字列にする。"
+  (if (not (numberp seconds))
+      "?:??"
+    (let* ((seconds (truncate seconds))
+           (h (/ seconds 3600))
+           (m (/ (mod seconds 3600) 60))
+           (s (mod seconds 60)))
+      (if (> h 0)
+          (format "%d:%02d:%02d" h m s)
+        (format "%d:%02d" m s)))))
+
+(defvar my/youtube-search-count 100
+  "YouTube検索で取得する候補の件数。")
+
+(defun my/youtube-search--builder (input)
+  "yt-dlp検索コマンドを組み立てる。"
+  (when my/youtube--yt-dlp-exe
+    (let ((n (number-to-string my/youtube-search-count)))
+      `(,my/youtube--yt-dlp-exe "--flat-playlist" "-j" "--playlist-end" ,n
+        ,(concat "ytsearch" n ":" input)))))
+
+(defun my/youtube-search--transform-line (line)
+  "yt-dlpのJSON1行をタイトル文字列に変換し、各種情報をプロパティに埋め込む。
+失敗した行はnilを返す（consult--async-filterで除外される）。"
+  (condition-case nil
+      (let* ((data (json-parse-string line :object-type 'alist))
+             (title (alist-get 'title data))
+             (id (alist-get 'id data))
+             (duration (alist-get 'duration data))
+             (uploader (or (alist-get 'uploader data)
+                           (alist-get 'channel data)
+                           "")))
+        (propertize
+         title
+         'youtube-url (format "https://www.youtube.com/watch?v=%s" id)
+         ;; 動画IDから直接サムネイルURLを組み立てる（常に取得できる）
+         'youtube-thumbnail (format "https://i.ytimg.com/vi/%s/hqdefault.jpg" id)
+         'youtube-duration (my/youtube--format-duration duration)
+         'youtube-uploader uploader))
+    (error nil)))
+
+(defun my/youtube--fetch-thumbnail (url callback)
+  "URL のサムネイル画像を非同期取得し、取得できたら CALLBACK に image を渡す。
+キャッシュ済みなら即座に CALLBACK を呼ぶ。"
+  (let ((cached (gethash url my/youtube--thumbnail-cache)))
+    (cond
+     ((and cached (not (eq cached 'pending))) (funcall callback cached))
+     (cached nil)  ; 取得中なら何もしない
+     (t
+      (puthash url 'pending my/youtube--thumbnail-cache)
+      (url-retrieve
+       url
+       (lambda (status)
+         (goto-char (point-min))
+         (when (search-forward "\n\n" nil t)
+           (let ((data (buffer-substring (point) (point-max))))
+             (condition-case nil
+                 (let ((image (create-image data nil t :max-width 320 :max-height 180)))
+                   (puthash url image my/youtube--thumbnail-cache)
+                   (funcall callback image))
+               (error (remhash url my/youtube--thumbnail-cache)))))
+         (kill-buffer (current-buffer)))
+       nil t)))))
+
+(defun my/youtube--show-thumbnail (image)
+  "IMAGE をサムネイル用サイドウィンドウに表示する。"
+  (let ((buf (get-buffer-create my/youtube--thumbnail-buffer-name)))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert-image image)))
+    (unless (get-buffer-window buf)
+      (display-buffer
+       buf
+       '(display-buffer-in-side-window (side . right) (window-width . 36))))))
+
+(defun my/youtube--update-thumbnail-preview ()
+  "vertico の現在の候補に応じてサムネイルプレビューを更新する。"
+  (when (fboundp 'vertico--candidate)
+    (when-let* ((cand (ignore-errors (vertico--candidate)))
+                (url (get-text-property 0 'youtube-thumbnail cand)))
+      (my/youtube--fetch-thumbnail url #'my/youtube--show-thumbnail))))
+
+(defun my/youtube--minibuffer-setup ()
+  "サムネイルプレビュー用フックをこのミニバッファ内だけで有効にする。"
+  (add-hook 'post-command-hook #'my/youtube--update-thumbnail-preview nil t))
+
+(with-eval-after-load 'marginalia
+  (defun my/youtube--marginalia-annotate (cand)
+    "候補 CAND の右側に再生時間と投稿者を表示する。"
+    (let ((duration (get-text-property 0 'youtube-duration cand))
+          (uploader (get-text-property 0 'youtube-uploader cand)))
+      (marginalia--fields
+       (uploader :truncate 0.4 :face 'marginalia-type)
+       (duration :face 'marginalia-size))))
+  ;; marginalia 2.x で marginalia-annotator-registry は marginalia-annotators に
+  ;; 改名され、旧名の互換エイリアスも廃止されたため、存在する方を使う。
+  (add-to-list (if (boundp 'marginalia-annotators)
+                    'marginalia-annotators
+                  'marginalia-annotator-registry)
+               '(youtube-video my/youtube--marginalia-annotate builtin none)))
+
+(defun my/consult-youtube ()
+  "YouTubeをインクリメンタル検索する。
+再生時間・投稿者を候補一覧に、サムネイルをサイドウィンドウに表示する。
+選択した動画はブラウザで開く。"
+  (interactive)
+  (unless my/youtube--yt-dlp-exe
+    (user-error "yt-dlp が見つかりません。PATH に通すか portable/bin/ に yt-dlp.exe を置いてください"))
+  (let* ((source
+          (consult--async-pipeline
+           (consult--process-collection #'my/youtube-search--builder
+                                         :min-input 2)
+           (consult--async-map #'my/youtube-search--transform-line)
+           (consult--async-filter #'identity)))
+         (selected
+          (unwind-protect
+              (progn
+                (add-hook 'minibuffer-setup-hook #'my/youtube--minibuffer-setup)
+                (consult--read
+                 source
+                 :prompt "YouTube検索: "
+                 :sort nil
+                 :require-match t
+                 :history 'my/youtube-search-history
+                 :lookup #'consult--lookup-member
+                 :category 'youtube-video))
+            (remove-hook 'minibuffer-setup-hook #'my/youtube--minibuffer-setup)
+            (when-let ((buf (get-buffer my/youtube--thumbnail-buffer-name)))
+              (delete-windows-on buf)
+              (kill-buffer buf)))))
+    (if-let ((url (get-text-property 0 'youtube-url selected)))
+        (browse-url url)
+      (message "選択した候補からURLを取得できませんでした: %S" selected))))
 
 ;; --- project.el と fd の連携 ---
 (with-eval-after-load 'project
@@ -2870,6 +3047,14 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
 
   ;; EPUB内の画像表示をウィンドウサイズの50%を上限に合わせる設定
   (setq shr-max-image-proportion 0.5)
+
+  ;; 章移動時の nov-render-document は shr で大量のDOMを一気に構築するため、
+  ;; 標準のGCしきい値のままだと描画中に何度もGCが走ってカクつく・固まって
+  ;; 見える原因になる。描画中だけしきい値を一時的に引き上げる。
+  (defun my/nov-render-document--boost-gc (orig-fn &rest args)
+    (let ((gc-cons-threshold (max gc-cons-threshold (* 256 1024 1024))))
+      (apply orig-fn args)))
+  (advice-add 'nov-render-document :around #'my/nov-render-document--boost-gc)
 
   (defun my/nov-mode-hook ()
     (setq-local line-spacing 0.2)
