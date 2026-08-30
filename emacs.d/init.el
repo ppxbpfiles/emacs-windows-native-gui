@@ -22,6 +22,11 @@
 ;; （※実際のロード処理は、パッケージ初期化後の競合を防ぐため init.el の末尾で行います）
 (setq custom-file (expand-file-name "custom.el" user-emacs-directory))
 
+;; テーマ切り替え時の "Loading theme could run malicious Lisp code! Really
+;; load?" という確認プロンプトを毎回出さないようにする(全テーマを安全と
+;; みなす)
+(setq custom-safe-themes t)
+
 ;; 🌟 終了時の固まり対策（共通ローカルキャッシュ ＋ USBへの非同期同期）
 ;; user-emacs-directory は USB 等のポータブル/ネットワークドライブ上にある
 ;; ことがあり、そこへ終了時に直接・同期的に書き込むと、応答の遅いドライブで
@@ -1597,10 +1602,23 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
          (run-dir (if file-path
                       (expand-file-name (file-name-directory file-path))
                     (expand-file-name default-directory)))
-         ;; PowerShell 用: Set-Location でファイルのディレクトリに移動してからコマンド実行
-         ;; run-dir をシングルクォートで囲んで括弧入りパスにも対応
-         (ps-quoted-dir (concat "'" (replace-regexp-in-string "'" "''" run-dir t t) "'"))
-         (ps-args (concat "-NoExit -Command & { Set-Location " ps-quoted-dir "; " cmd "}")))
+         ;; PowerShell 用: 1行の -Command 文字列にまとめて渡す方式は、
+         ;; Windows のコマンドライン再構成の過程でパス中の "(" ")" 等の
+         ;; 特殊文字と噛み合わずクォートが壊れることがある(例:
+         ;; フォルダ名に "(Wed)" のような括弧が入っていると、agy 側が
+         ;; 受け取る引数にクォート文字がそのまま混入してしまう)。
+         ;; 一時 .ps1 ファイルに書き出して `-File' で実行する方式にすれば、
+         ;; コマンドライン再構成を経由しないのでこの種の崩れが起きない。
+         (ps-script-file (and (eq shell 'powershell) (make-temp-file "emacs-run-" nil ".ps1")))
+         (ps-args (when ps-script-file
+                    (with-temp-file ps-script-file
+                      (insert "Set-Location -LiteralPath '"
+                              (replace-regexp-in-string "'" "''" run-dir t t)
+                              "'\n"
+                              cmd
+                              "\n"
+                              "Remove-Item -Force -LiteralPath $PSCommandPath\n"))
+                    (format "-NoExit -ExecutionPolicy Bypass -File \"%s\"" ps-script-file))))
     (cond
      (wt
       (cond
@@ -1662,30 +1680,36 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
 
 (defun my/run-agy-cmd-on-current-file (args)
   "現在のファイルを Antigravity (agy.exe) に渡し、cmd.exe 経由で外部ターミナルで実行します。"
-  (interactive "s[cmd] Antigravity(agy) の引数 (必要なら入力、例: -y): ")
+  (interactive "s[cmd] Antigravity(agy) の追加オプション (必要なら入力、例: --model xxx): ")
   (let ((file (buffer-file-name)))
     (if (not file)
         (user-error "このバッファはファイルに対応していません")
       (when (buffer-modified-p)
         (save-buffer))
+      ;; agy はファイルパスを裸の位置引数として渡すと
+      ;; "unexpected argument" エラーになる。-i (--prompt-interactive)
+      ;; の初期プロンプトとしてファイルパスを渡す。
       (let* ((quoted-file (shell-quote-argument file))
              (cmd (if (string-empty-p args)
-                      (concat "agy " quoted-file)
-                    (concat "agy " args " " quoted-file))))
+                      (concat "agy -i " quoted-file)
+                    (concat "agy " args " -i " quoted-file))))
         (my/run-in-external-terminal 'cmd cmd)))))
 
 (defun my/run-agy-powershell-on-current-file (args)
   "現在のファイルを Antigravity (agy.exe) に渡し、PowerShell 経由で外部ターミナルで実行します。"
-  (interactive "s[PowerShell] Antigravity(agy) の引数 (必要なら入力、例: -y): ")
+  (interactive "s[PowerShell] Antigravity(agy) の追加オプション (必要なら入力、例: --model xxx): ")
   (let ((file (buffer-file-name)))
     (if (not file)
         (user-error "このバッファはファイルに対応していません")
       (when (buffer-modified-p)
         (save-buffer))
+      ;; agy はファイルパスを裸の位置引数として渡すと
+      ;; "unexpected argument" エラーになる。-i (--prompt-interactive)
+      ;; の初期プロンプトとしてファイルパスを渡す。
       (let* ((quoted-file (my/ps-quote-argument file))
              (cmd (if (string-empty-p args)
-                      (concat "agy " quoted-file)
-                    (concat "agy " args " " quoted-file))))
+                      (concat "agy -i " quoted-file)
+                    (concat "agy " args " -i " quoted-file))))
         (my/run-in-external-terminal 'powershell cmd)))))
 
 ;; ファイル操作メニュー
