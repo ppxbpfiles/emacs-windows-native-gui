@@ -1342,7 +1342,11 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
         (setq migemo-user-dictionary  nil)
         (setq migemo-regex-dictionary nil)
         (setq migemo-coding-system    'utf-8-unix)
-        (migemo-init))
+        (migemo-init)
+        ;; migemo.el は isearch 統合を標準搭載しており、migemo-init 後は
+        ;; 既定(t)で有効。つまり F3/Shift-F3（isearch-forward/backward）は
+        ;; 既にMigemo対応済みのため、別途 isearch-migemo 等の追加は不要。
+        (setq migemo-isearch-enable-p t))
     (message "【お知らせ】cmigemo が見つからないため Migemo を無効化しています。")))
 
 
@@ -1820,34 +1824,9 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   ("p" hydra-launcher/body :color blue)
   ("q" nil :color blue))
 
-;; Calc サブメニュー（hydra-launcher より先に定義する）
-(defhydra hydra-calc (:color blue :hint nil)
-  "
-  === CALC 電卓 (M-o C) ===
-  [起動]                                  [入力モード]
-  [c] Calc を開く                       [a] 代数モード ON  (普通の記法)
-  [m] Casual メニュー [電卓内: C-o]     [r] RPN モード ON  (スタック式)
-  ----------------------------------------------------------------------
-  [0] スタック全消去 (AC)  [直キー: C-u 0 DEL]
-  ----------------------------------------------------------------------
-  ※ 全設定の初期化（フルリセット）は [C-x * 0] です。
-  ----------------------------------------------------------------------
-  [p] メインメニューに戻る            [q] 閉じる
-"
-  ("c" calc)
-  ("m" (progn (calc) (casual-calc-tmenu)))
-  ("a" (progn (calc)
-              (unless calc-algebraic-mode
-                (calc-algebraic-mode nil))
-              (message "代数モード（中置記法）に切り替えました")))
-  ("r" (progn (calc)
-              (when calc-algebraic-mode
-                (calc-algebraic-mode nil))
-              (message "RPN モード（スタック式）に切り替えました")))
-  ("0" (progn (calc)
-              (calc-pop-stack (calc-stack-size))))
-  ("p" hydra-launcher/body :color blue)
-  ("q" nil :color blue))
+;; Calc（フル機能電卓）は M-o C から直接 calculator（簡易電卓）を開く
+;; 形に一本化した。代数/RPN切替やスタック消去が必要な場合はCalcを開いて
+;; (M-x calc) バッファ内で C-o（Casualメニュー）を使う。
 
 ;; テキスト変換 サブメニュー（hydra-launcher より先に定義する）
 (defhydra hydra-text (:color blue :hint nil)
@@ -1930,7 +1909,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   ("c" conpty)
   ("p" conpty-powershell)
   ("L" my/open-calendar)
-  ("C" hydra-calc/body)
+  ("C" calculator)
   ("T" hydra-text/body)
   ("d" lookup)
   ("O" moccur)
@@ -1948,7 +1927,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
     (define-key menu-map [hydra-new-frame]  '(menu-item "新しいウィンドウを開く" make-frame :keys "M-o n"))
     (define-key menu-map [separator-2]      '(menu-item "--"))
     (define-key menu-map [hydra-marker]     '(menu-item "カラーマーカー" hydra-marker/body :keys "M-o M"))
-    (define-key menu-map [hydra-calc]       '(menu-item "電卓" hydra-calc/body :keys "M-o C"))
+    (define-key menu-map [hydra-calc]       '(menu-item "電卓" calculator :keys "M-o C"))
     (define-key menu-map [hydra-calendar]   '(menu-item "カレンダー" my/open-calendar :keys "M-o L"))
     (define-key menu-map [hydra-file]       '(menu-item "ファイル操作" hydra-file/body :keys "M-o F"))
     (define-key menu-map [hydra-window]     '(menu-item "ウィンドウ操作" hydra-window/body :keys "M-o w"))
@@ -2896,8 +2875,8 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
              (lambda ()
                (message "💡 Calc: [C-o] メニュー表示  /  [C-u 0 DEL] スタック全消去  /  [C-x * 0] 初期化")))))
 
-;; F7 で Calc を即起動（電卓を呼び出す感覚で）
-(global-set-key [f7] #'calc)
+;; F7 で Calculator（簡易電卓）を即起動
+(global-set-key [f7] #'calculator)
 
 ;; M-x calculator で表示が切れる問題への対策（ウィンドウ高さを最低4行に拡張）
 (add-hook 'calculator-mode-hook
@@ -3088,7 +3067,12 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
     (setq-local line-spacing 0.2)
     (setq-local fill-column 80)
     (visual-line-mode 1))
-  (add-hook 'nov-mode-hook #'my/nov-mode-hook))
+  (add-hook 'nov-mode-hook #'my/nov-mode-hook)
+
+  ;; F4はグローバルではimenu-listサイドバーだが、nov-modeバッファ内では
+  ;; EPUB標準の目次(nov-goto-toc)を優先する。nov-mode-mapへのローカル
+  ;; バインドなので、EPUB以外のバッファのF4には影響しない。
+  (define-key nov-mode-map [f4] 'nov-goto-toc))
 
 ;; Calibre の ebook-convert を探す（PATH → 環境変数 ProgramFiles 系の順）
 (defun my/find-calibre-converter ()
@@ -4019,6 +4003,260 @@ EPUB への変換とオープンが終わったら、元の AZW/AZW3 バッフ�
   (setq dmacro-key (kbd "C-t"))
   :config
   (global-dmacro-mode 1))
+
+;; =====================================================================
+;; 27. Meow（モーダル編集）
+;; ─ 8節で設定済みのCUA/Windows風ショートカット(C-a/C-e/C-s/C-o/C-w/C-z等)は
+;;   すべてControl修飾のため、Meowのnormal-state内の無修飾キーとは
+;;   キー階層が異なり、互いを上書きしない。そのため両者は共存できる。
+;;   （経緯：CUAとMeowの共存可否、および導入直後にカーソル移動キーが
+;;    何も割り当たっていない問題について検討済み）
+;; =====================================================================
+
+(use-package meow
+  :ensure t
+  :config
+  (defun my/meow--register-p (register)
+    "REGISTERが0-9のレジスタ指定として妥当な数値か判定する。"
+    (and register (integerp register) (<= 0 register 9)))
+
+  (defun my/meow-cut (&optional register)
+    "選択中はkill-regionで直接切り取る（CUAのC-x遅延判定は経由しない）。
+M-0〜M-9を前置した場合はそのレジスタへコピーしてから削除する。
+選択が無ければ通常のmeow-kill（内部でmeow-C-kにフォールバック）。"
+    (interactive "P")
+    (if (use-region-p)
+        (if (my/meow--register-p register)
+            (copy-to-register (+ ?0 register) (region-beginning) (region-end) t)
+          (kill-region (region-beginning) (region-end)))
+      (meow-kill)))
+
+  (defun my/meow-copy (&optional register)
+    "選択中はkill-ring-saveで直接コピーする。
+M-0〜M-9を前置した場合はそのレジスタへコピーする（削除はしない）。
+選択が無ければ通常のmeow-save。"
+    (interactive "P")
+    (if (use-region-p)
+        (if (my/meow--register-p register)
+            (copy-to-register (+ ?0 register) (region-beginning) (region-end))
+          (kill-ring-save (region-beginning) (region-end)))
+      (meow-save)))
+
+  (defun my/meow-paste (&optional register)
+    "M-0〜M-9を前置した場合はそのレジスタの内容をinsert-registerで貼り付ける。
+指定が無ければ通常のmeow-yank（内部でC-v=CUAペーストをシミュレート）。"
+    (interactive "P")
+    (if (my/meow--register-p register)
+        (insert-register (+ ?0 register))
+      (meow-yank)))
+
+  (defun my/meow-insert-exit ()
+    "IMEがONなら明示的にOFFにしてから、無条件でNORMALに復帰する。
+meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理の
+途中に挟まりIMEの不具合次第でESCそのものが効かなくなる恐れが
+あったため、キー自体をこの関数に差し替えて実行順序を確定させる。"
+    (interactive)
+    (when current-input-method
+      (ignore-errors (deactivate-input-method)))
+    (meow-insert-exit))
+
+  (defun my/meow-setup ()
+    "Meow公式のQWERTY向け推奨キーバインド。"
+    (setq meow-cheatsheet-layout meow-cheatsheet-layout-qwerty)
+
+    ;; MOTION state（dired等の特殊バッファ用）：j/kで上下移動
+    ;; 元のコマンドは SPC j / SPC k から呼び出せる
+    (meow-motion-overwrite-define-key
+     '("h" . meow-left)
+     '("j" . meow-next)
+     '("k" . meow-prev)
+     '("l" . meow-right)
+     '("<escape>" . ignore))
+
+    ;; リーダーキー（SPC）経由のコマンド
+    (meow-leader-define-key
+     '("j" . "H-j")
+     '("k" . "H-k")
+     '("1" . meow-digit-argument)
+     '("2" . meow-digit-argument)
+     '("3" . meow-digit-argument)
+     '("4" . meow-digit-argument)
+     '("5" . meow-digit-argument)
+     '("6" . meow-digit-argument)
+     '("7" . meow-digit-argument)
+     '("8" . meow-digit-argument)
+     '("9" . meow-digit-argument)
+     '("0" . meow-digit-argument)
+     '("/" . meow-keypad-describe-key)
+     '("?" . meow-cheatsheet))
+
+    ;; NORMAL state（通常の編集コマンド）
+    (meow-normal-define-key
+     '("0" . meow-expand-0)
+     '("9" . meow-expand-9)
+     '("8" . meow-expand-8)
+     '("7" . meow-expand-7)
+     '("6" . meow-expand-6)
+     '("5" . meow-expand-5)
+     '("4" . meow-expand-4)
+     '("3" . meow-expand-3)
+     '("2" . meow-expand-2)
+     '("1" . meow-expand-1)
+     '("-" . negative-argument)
+     '(";" . meow-reverse)
+     '("," . meow-inner-of-thing)
+     '("." . meow-bounds-of-thing)
+     '("[" . meow-beginning-of-thing)
+     '("]" . meow-end-of-thing)
+     '("<" . beginning-of-buffer)
+     '(">" . end-of-buffer)
+     '("a" . meow-append)
+     '("A" . meow-open-below)
+     '("b" . meow-back-word)
+     '("B" . meow-back-symbol)
+     '("c" . meow-change)
+     '("d" . meow-delete)
+     '("D" . meow-backward-delete)
+     '("e" . meow-next-word)
+     '("E" . meow-next-symbol)
+     '("f" . meow-find)
+     '("g" . meow-cancel-selection)
+     '("G" . meow-grab)
+     '("h" . meow-left)
+     '("H" . meow-left-expand)
+     '("i" . meow-insert)
+     '("I" . meow-open-above)
+     '("j" . meow-next)
+     '("J" . meow-next-expand)
+     '("k" . meow-prev)
+     '("K" . meow-prev-expand)
+     '("l" . meow-right)
+     '("L" . meow-right-expand)
+     '("m" . meow-join)
+     '("n" . meow-search)
+     '("o" . meow-block)
+     '("O" . meow-to-block)
+     '("p" . my/meow-paste)
+     '("q" . meow-quit)
+     '("Q" . meow-goto-line)
+     '("r" . meow-replace)
+     '("R" . meow-swap-grab)
+     '("s" . my/meow-cut)
+     '("t" . meow-till)
+     '("u" . meow-undo)
+     '("U" . meow-undo-in-selection)
+     '("v" . meow-visit)
+     ;; Migemo対応のconsult検索。meow-visitと違い選択状態にはならない、
+     ;; ライブプレビュー付き一覧から探してジャンプするだけの用途。
+     '("/" . my/consult-line-migemo)
+     '("w" . meow-mark-word)
+     '("W" . meow-mark-symbol)
+     '("x" . meow-line)
+     '("X" . meow-goto-line)
+     '("y" . my/meow-copy)
+     '("Y" . meow-sync-grab)
+     '("z" . meow-pop-selection)
+     '("'" . repeat)
+     ;; 既定は選択キャンセルが "g" だが、CUA/Windows的にESCで
+     ;; 選択解除できる方が直感的なため上書きする
+     ;; (「長年のブロック…」記事群での指摘を踏まえた変更)
+     '("<escape>" . meow-cancel-selection)))
+
+  (my/meow-setup)
+
+  ;; --- NORMAL復帰時にIMEを自動OFF ---
+  ;; meow-normal-mode に直接フックすると、日本語入力を確定した直後に
+  ;; 誤ってIMEまでOFFになってしまう不具合があるため、フックではなく
+  ;; INSERT stateの<escape>キー自体を専用関数(my/meow-insert-exit)に
+  ;; 差し替える。実行順序(IME確認→OFF→NORMAL復帰)を関数内で保証できる。
+  ;; macOS記事の mac-ime-deactivate に相当するのは、この環境(tr-ime)
+  ;; では標準の deactivate-input-method（11b節のisearch/ミニバッファ
+  ;; 抑制と同じ関数）。
+  (meow-define-keys 'insert
+    '("<escape>" . my/meow-insert-exit))
+
+  ;; --- kbdシミュレーション対象キーの補正 ---
+  ;; Meowの一部コマンド(移動・貼り付け等)は「指定したキーを押した体で
+  ;; 実行する」方式のため、そのキーを他の用途に上書きしている場合は、
+  ;; Meow側の変数を実際の割り当てに合わせて修正する必要がある
+  ;; (Meow公式ドキュメントにも明記されている既知の注意点)。
+  ;;
+  ;; 8節/11節でCUA/Windows風に上書き済みのキーがここに該当する:
+  ;;   C-f → my/consult-line-migemo に上書き済み(本来は forward-char)
+  ;;   C-y → undo-redo に上書き済み(本来は yank)
+  ;; そのため、移動は矢印キーへ、貼り付けはCUAの C-v(CUAペースト)へ
+  ;; 向け直す。
+  ;;
+  ;; 切り取り(旧: C-w → kill-current-buffer に上書き済みで meow-kill が
+  ;; 壊れていた問題)は、kbdシミュレーションではなく "s" キーを
+  ;; my/meow-cut に直接差し替える方式に変更した。CUAの C-x は
+  ;; 「プレフィックスキーか切り取りか」をタイマー付きの実キー入力待ちで
+  ;; 判定する特殊な仕組み(cua--prefix-override-handler)のため、
+  ;; kbdシミュレーション越しに呼ぶと待機状態に入りwhich-key風の
+  ;; ポップアップが出てしまう。kill-regionを直接呼ぶことでこれを回避。
+  (setq meow--kbd-forward-char "<right>")
+  (setq meow--kbd-yank "C-v")
+
+  ;; モードラインにMeowの状態表示（<N>/<I>/<M>等）を追加する。
+  ;; 5節で mode-line-format を独自リストに差し替えているため、
+  ;; この呼び出しをしないとインジケーターは一切表示されない。
+  (meow-setup-indicator)
+
+  ;; --- CUAとの共存に関する補足 ---
+  ;; ・normal-state中でも C-x/C-c/C-v/C-z/C-a/C-e/C-s/C-o/C-w は
+  ;;   Control修飾キーであるため、8節のCUA/Windows風バインドが
+  ;;   そのまま機能する（Meow標準コマンドと衝突しない）。
+  ;; ・矩形選択の C-RET はMeow標準キーマップで未使用のため衝突しない。
+  ;; ・"u"（meow-undo）はnormal-state限定の別ルートとして残しているが、
+  ;;   8節の C-z(undo) / M-z(vundo) が主系統であることに変わりはない。
+  ;;
+  ;; もし試した結果「今は要らない」となった場合は、下の行をコメントアウト
+  ;; すればMeowは常駐するがnormal-state化はされず、通常のEmacsと同じ挙動に戻る。
+  (meow-global-mode 1))
+
+;; =====================================================================
+;; 28. Puni（構造編集）とMeow/CUAの連携
+;; ─ 括弧やリストなどの構文構造(sexp/list)を意識した編集をMeowに追加する。
+;;   参考: Apribase「Emacs Meow を Evil Alternative として使えるようにする」
+;;   ・delete-selection-mode（8節で有効化済み）と衝突しない設計のため、
+;;     選択中にBackspaceを押した場合はまず選択範囲の削除が優先される。
+;;   ・electric-pair-mode（既存の自動括弧補完）とも役割が異なるだけで
+;;     競合しない(挿入時の自動閉じ括弧 vs 編集時の構造認識削除)。
+;; =====================================================================
+
+(use-package puni
+  :ensure t
+  :config
+  ;; 全バッファでpuni-modeを有効化(公式README推奨)。
+  ;; 括弧の対応が壊れるような中途半端な削除を防ぐBackspace/Deleteが
+  ;; 有効になる。
+  (puni-global-mode)
+
+  ;; --- INSERT state: Backspaceを構造を壊さない削除に差し替え ---
+  (meow-define-keys 'insert
+    '("<backspace>" . puni-backward-delete-char))
+
+  ;; --- NORMAL state: 括弧キーで囲み構造をそのまま選択 ---
+  ;; Meow標準の meow-inner-of-thing/meow-bounds-of-thing（","/"."）は
+  ;; 直後に "(" 等の対象指定が要るが、puniの以下2つはその指定なしで
+  ;; 「今いる場所を囲むS式」を直接掴めるため、キー自体を括弧にして
+  ;; 直感的に対応させる。
+  ;;   "(" → 式全体を選択（括弧を含む。Vimの da( 相当）
+  ;;   ")" → 式の中身だけを選択（括弧を含まない。Vimの di( 相当）
+  (meow-normal-define-key
+   '("(" . puni-mark-sexp-around-point)
+   '(")" . puni-mark-list-around-point))
+
+  ;; --- リーダーキー(SPC p ...)経由：囲み構造の変形操作 ---
+  ;; 頻度が低い操作なのでSPC経由にまとめる。
+  (meow-leader-define-key
+   '("p (" . puni-wrap-round)    ; 選択範囲を ( ) で包む
+   '("p [" . puni-wrap-square)   ; 選択範囲を [ ] で包む
+   '("p {" . puni-wrap-curly)    ; 選択範囲を { } で包む
+   '("p <" . puni-wrap-angle)    ; 選択範囲を < > で包む
+   '("p s" . puni-splice)        ; 囲んでいる括弧だけを外す
+   '("p l" . puni-slurp-forward) ; 次の要素を括弧の中に取り込む
+   '("p b" . puni-barf-forward)))  ; 括弧内の最後の要素を外に出す
 
 ;; =====================================================================
 ;; 最終処理: GUIカスタマイズ設定 (custom.el) のロード
