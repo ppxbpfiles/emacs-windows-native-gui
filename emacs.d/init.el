@@ -1859,9 +1859,34 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   ("p" hydra-launcher/body :color blue)
   ("q" nil :color blue))
 
-;; Calc（フル機能電卓）は M-o C から直接 calculator（簡易電卓）を開く
-;; 形に一本化した。代数/RPN切替やスタック消去が必要な場合はCalcを開いて
-;; (F7 または M-x calc) バッファ内で C-o（Casualメニュー）を使う。
+;; Calc サブメニュー（hydra-launcher より先に定義する）
+(defhydra hydra-calc (:color blue :hint nil)
+  "
+  === CALC 電卓 (M-o C) ===
+  [起動]                                  [入力モード]
+  [c] Calc を開く                       [a] 代数モード ON  (普通の記法)
+  [m] Casual メニュー [電卓内: C-o]     [r] RPN モード ON  (スタック式)
+  ----------------------------------------------------------------------
+  [0] スタック全消去 (AC)  [直キー: C-u 0 DEL]
+  ----------------------------------------------------------------------
+  ※ 全設定の初期化（フルリセット）は [C-x * 0] です。
+  ----------------------------------------------------------------------
+  [p] メインメニューに戻る            [q] 閉じる
+"
+  ("c" calc)
+  ("m" (progn (calc) (casual-calc-tmenu)))
+  ("a" (progn (calc)
+              (unless calc-algebraic-mode
+                (calc-algebraic-mode nil))
+              (message "代数モード（中置記法）に切り替えました")))
+  ("r" (progn (calc)
+              (when calc-algebraic-mode
+                (calc-algebraic-mode nil))
+              (message "RPN モード（スタック式）に切り替えました")))
+  ("0" (progn (calc)
+              (calc-pop-stack (calc-stack-size))))
+  ("p" hydra-launcher/body :color blue)
+  ("q" nil :color blue))
 
 ;; テキスト変換 サブメニュー（hydra-launcher より先に定義する）
 (defhydra hydra-text (:color blue :hint nil)
@@ -1944,7 +1969,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   ("c" conpty)
   ("p" conpty-powershell)
   ("L" my/open-calendar)
-  ("C" calculator)
+  ("C" hydra-calc/body)
   ("T" hydra-text/body)
   ("d" lookup)
   ("O" moccur)
@@ -1962,7 +1987,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
     (define-key menu-map [hydra-new-frame]  '(menu-item "新しいウィンドウを開く" make-frame :keys "M-o n"))
     (define-key menu-map [separator-2]      '(menu-item "--"))
     (define-key menu-map [hydra-marker]     '(menu-item "カラーマーカー" hydra-marker/body :keys "M-o M"))
-    (define-key menu-map [hydra-calc]       '(menu-item "電卓" calculator :keys "M-o C"))
+    (define-key menu-map [hydra-calc]       '(menu-item "電卓" hydra-calc/body :keys "M-o C"))
     (define-key menu-map [hydra-calendar]   '(menu-item "カレンダー" my/open-calendar :keys "M-o L"))
     (define-key menu-map [hydra-file]       '(menu-item "ファイル操作" hydra-file/body :keys "M-o F"))
     (define-key menu-map [hydra-window]     '(menu-item "ウィンドウ操作" hydra-window/body :keys "M-o w"))
