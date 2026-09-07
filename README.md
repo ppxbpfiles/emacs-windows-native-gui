@@ -7,6 +7,8 @@
 > メニューバー・ツールバー・タブバー・右クリックメニューをフル活用し、CUA キーバインド（`C-c/C-v/C-z`）で
 > Windows ネイティブアプリに近い操作感を実現しています。「Emacs をエディタとして使う」ことを重視しており、
 > キーボード完結よりもマウスとの併用を前提としたワークフローに最適化されています。
+> その上で、キーボードだけでの編集を高速化したい場面向けに **Meow（モーダル編集）** をCUAと共存する形で
+> 追加しており、CtrlキーはCUA、無修飾キーはMeowという住み分けで両立させています。
 
 ![スクリーンショット](screenshot.jpg)
 
@@ -22,6 +24,7 @@
 - **サクラエディタ風の正規表現キーワード強調** — テキストや Markdown 文書において、各種括弧（`「」` `【】` `（）` など）、引用符（`''` `""`）、および丸数字（`①-⑳`）を自動で色分け表示します
 - **リアルタイム置換（visual-replace）** — 文字入力と同時に、バッファ上で実際に置換された状態がリアルタイムでプレビューされ、置換ミスを未然に防ぎます
 - **ソフトナローイング（独自実装）** — 選択範囲の限定（Narrow）時に、範囲外を非表示にせずグレーアウト表示にして周囲の文脈を確認しやすくします
+- **Meow（モーダル編集）+ Puni（構造編集）** — CUAと共存する形でモーダル編集を追加。移動・削除・レジスタ付き切り取り/コピー/貼り付けをキーボードだけで完結でき、Puniにより括弧構造を意識した編集（囲み選択・wrap/slurp/barf）も行えます
 
 ## 主な構成
 
@@ -42,6 +45,8 @@
 | 21b. Mozc 日本語入力 | mozc-modeless によるモードレス日本語入力、`C-\\` で手動 ON/OFF トグル（tr-ime / w32-ime は無効） |
 | 22. gptel | OpenAI / xAI / Gemini / OpenRouter 対応 LLMチャット |
 | 23. GhostText 連携 | atomic-chrome によるブラウザ入力欄のリアルタイム編集 |
+| 27. Meow | CUAと共存するモーダル編集。レジスタ対応の切り取り/コピー/貼り付け（`M-0`〜`M-9`）、Vim風検索（`/`/`?`）など |
+| 28. Puni | 括弧・リストの構造を意識した編集（囲み選択、wrap/slurp/barf） |
 
 その他：calfw（カレンダー）、Casual（Transient メニュー）、symbol-overlay（カラーマーカー）、Lookup（EPWING 辞書）、nov.el（EPUB）、empv（音楽再生）、zoxide 連携、fd / ripgrep 連携、visual-replace（リアルタイム置換）、独自実装のソフトナローイング（範囲外グレーアウト）
 
@@ -67,6 +72,11 @@
 | `M-z` (Alt+Z) | vundo — undo ツリーを視覚化してツリー上の任意の過去状態に戻る |
 | `M-%` | リアルタイム通常置換（visual-replace） |
 | `C-M-%` | リアルタイム正規表現置換（visual-replace） |
+| `C-h` | 置換オプションのポップアップメニュー（通常/正規表現、全体/一部） |
+| `F1` | ヘルプ（`C-h`を置換に転用したためF1に一本化） |
+
+> [!NOTE]
+> Meow（モーダル編集）のキー（NORMAL/INSERT状態など）は上記のCtrl系ショートカットとは別レイヤーです。詳細は **[cheatsheet.md](cheatsheet.md)** の「Meow」セクションを参照してください。
 
 ### ダッシュボードでのショートカット
 
@@ -220,6 +230,13 @@
 | vundo | undo 履歴をツリーで視覚化して任意の時点に戻る（`M-z`） |
 | zoxide | 頻繁に使うディレクトリへの高速移動（`M-o z`） |
 
+### モーダル編集
+
+| パッケージ | 用途 |
+|---|---|
+| meow | CUAと共存するモーダル編集（NORMAL/INSERT/MOTION状態、レジスタ対応の切り取り/コピー/貼り付けなど） |
+| puni | 括弧・リストの構造を意識した編集（囲み選択、wrap/slurp/barf、壊れない Backspace） |
+
 ### Windows 連携
 
 | パッケージ | 用途 |
@@ -263,6 +280,7 @@
 - `major-mode-hydra` — メジャーモード固有のメニュー定義
 - `marginalia` — ミニバッファ補完候補へのメタ情報/注釈表示
 - `markdown-mode` / `markdown-toc` — Markdown 編集と目次自動生成
+- `meow` — CUAと共存するモーダル編集レイヤー
 - `migemo` — 日本語ローマ字でのバッファ内高速検索
 - `mozc` / `mozc-modeless` — モードレス日本語入力環境
 - `multiple-cursors` — 複数箇所同時編集（マルチカーソル）
@@ -273,6 +291,7 @@
 - `org-download` — ドラッグ＆ドロップによる画像保存・Markdown挿入
 - `persist` — 変数の状態永続化
 - `persistent-scratch` — scratchバッファ内容の保存と自動復元
+- `puni` — 括弧・リストの構造を意識した編集（Meow用に囲み選択も追加設定済み）
 - `rainbow-delimiters` — 括弧・ブラケットを深さごとに色分け表示
 - `tr-ime` — Windows IME 制御連携（w32-ime 互換）
 - `track-changes` — バッファ変更トラッキング
@@ -302,6 +321,8 @@
 | my/obsidian-ripgrep-migemo | Obsidian vault を Migemo で全文検索 |
 | my/document-text-view | xdoc2txt / Pandoc でバイナリ文書をテキスト表示 |
 | my/nov-open-epub | EPUB ファイルを nov.el で開く |
+| my/meow-cut / my/meow-copy / my/meow-paste | Meowの切り取り/コピー/貼り付け（`M-0`〜`M-9`前置でレジスタ0-9を指定可能） |
+| my/meow-insert-exit | MeowのINSERT終了時、IMEがONなら先にOFFにしてからNORMALへ復帰 |
 | my/run-agy-cmd-on-current-file | 現在のファイルを Google Antigravity(agy.exe) に渡し、cmd 外部窓で実行 |
 | my/run-agy-powershell-on-current-file | 現在のファイルを Google Antigravity(agy.exe) に渡し、PowerShell 外部窓で実行 |
 | my/run-command-cmd-on-current-file | 現在のファイルを引数にして、cmd 外部窓でコマンドを実行（%f=パス） |
