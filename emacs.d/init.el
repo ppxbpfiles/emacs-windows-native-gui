@@ -1297,9 +1297,44 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
 (global-set-key (kbd "<f3>")   'my/isearch-forward-or-repeat)
 (global-set-key (kbd "S-<f3>") 'my/isearch-backward-or-repeat)
 
+;; Meowの n/N（Vim風「次/前を検索」）用に用意した関数。
+;; ※ 現在は n を meow-search のままにしているため未使用(定義だけ残置)。
+;;   検討の結果また n/N に割り当てたくなったら、Meowのnormal-define-key
+;;   側で '("n" . my/isearch-repeat-forward-anywhere) のように呼べば良い。
+;; isearch-repeat-forward/backwardはisearch-mode中でないと呼べないため、
+;; isearch-mode外では isearch-yank-string で確定済みの検索文字列を
+;; 注入してから検索する。現在位置が既にマッチ上にある場合に同じ場所へ
+;; 留まらないよう、検索開始前に1文字ずらしておく。
+(defun my/isearch-repeat-forward-anywhere ()
+  (interactive)
+  (if isearch-mode
+      (isearch-repeat-forward)
+    (if (and isearch-string (not (string-empty-p isearch-string)))
+        (progn
+          (unless (eobp) (forward-char 1))
+          (isearch-forward)
+          (isearch-yank-string isearch-string)
+          (isearch-exit))
+      (message "検索文字列がありません（先に / で検索してください）"))))
+
+(defun my/isearch-repeat-backward-anywhere ()
+  (interactive)
+  (if isearch-mode
+      (isearch-repeat-backward)
+    (if (and isearch-string (not (string-empty-p isearch-string)))
+        (progn
+          (unless (bobp) (backward-char 1))
+          (isearch-backward)
+          (isearch-yank-string isearch-string)
+          (isearch-exit))
+      (message "検索文字列がありません（先に / で検索してください）"))))
+
 (with-eval-after-load 'isearch
   (define-key isearch-mode-map (kbd "<f3>")   'isearch-repeat-forward)
-  (define-key isearch-mode-map (kbd "S-<f3>") 'isearch-repeat-backward))
+  (define-key isearch-mode-map (kbd "S-<f3>") 'isearch-repeat-backward)
+  ;; 矢印キーでもC-s/C-r連打と同じことができるように
+  (define-key isearch-mode-map (kbd "<down>") 'isearch-repeat-forward)
+  (define-key isearch-mode-map (kbd "<up>")   'isearch-repeat-backward))
 
 
 ;; =====================================================================
@@ -1826,7 +1861,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
 
 ;; Calc（フル機能電卓）は M-o C から直接 calculator（簡易電卓）を開く
 ;; 形に一本化した。代数/RPN切替やスタック消去が必要な場合はCalcを開いて
-;; (M-x calc) バッファ内で C-o（Casualメニュー）を使う。
+;; (F7 または M-x calc) バッファ内で C-o（Casualメニュー）を使う。
 
 ;; テキスト変換 サブメニュー（hydra-launcher より先に定義する）
 (defhydra hydra-text (:color blue :hint nil)
@@ -2534,17 +2569,33 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   (setq imenu-list-auto-resize t)     ; 項目数に合わせて自動リサイズ
 
   ;; nov-mode（EPUB リーダー）対策：
-  ;; nov.el の imenu インデックスは、複数ファイルにまたがる目次項目の位置情報として
-  ;; "c0.xhtml" のような文字列（内部ファイル名）を持つことがあり、
-  ;; imenu-list が期待する marker/number ではないため
-  ;; バックグラウンドタイマー実行中の imenu-list-update が
-  ;; (wrong-type-argument number-or-marker-p "c0.xhtml") で失敗し続けることがある。
-  ;; タイマー起動時のエラーで壊れないよう、更新処理をエラー握りつぶしでラップする。
-  (defun my/imenu-list-update-safe (orig-fun &rest args)
-    (condition-case nil
-        (apply orig-fun args)
-      (wrong-type-argument nil)))
-  (advice-add 'imenu-list-update :around #'my/imenu-list-update-safe))
+  ;; nov.el の imenu インデックスは、章ドキュメントの位置情報として "c0.xhtml" 等の
+  ;; ファイル名文字列を持つため、imenu-list--current-entry の数値比較 (<=) で
+  ;; (wrong-type-argument number-or-marker-p ...) エラーが発生する。
+  ;; nov-mode では現在閲覧中の章ドキュメントと一致する目次項目を安全に取得し、
+  ;; かつ型エラーによる描画・ジャンプのクラッシュを完全に防ぐ。
+  (defun my/imenu-list--current-entry-nov-support (orig-fun &rest args)
+    (let ((buf (or (bound-and-true-p imenu-list--displayed-buffer) (current-buffer))))
+      (if (and (buffer-live-p buf)
+               (with-current-buffer buf (derived-mode-p 'nov-mode)))
+          (with-current-buffer buf
+            (when (and (bound-and-true-p nov-documents)
+                       (bound-and-true-p nov-documents-index)
+                       (< nov-documents-index (length nov-documents)))
+              (let* ((current-path (cdr (aref nov-documents nov-documents-index)))
+                     (current-file (file-name-nondirectory current-path)))
+                (cl-find-if
+                 (lambda (entry)
+                   (when (listp (cdr entry))
+                     (let ((pos (cadr entry)))
+                       (and (stringp pos)
+                            (or (string-suffix-p pos current-path)
+                                (string= (file-name-nondirectory pos) current-file))))))
+                 imenu-list--line-entries))))
+        (condition-case nil
+            (apply orig-fun args)
+          (wrong-type-argument nil)))))
+  (advice-add 'imenu-list--current-entry :around #'my/imenu-list--current-entry-nov-support))
 
 ;; Markdown を開いたら自動でサイドバーを表示する
 ;; （markdown-mode は imenu-generic-expression を自前でセットするため
@@ -2875,8 +2926,8 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
              (lambda ()
                (message "💡 Calc: [C-o] メニュー表示  /  [C-u 0 DEL] スタック全消去  /  [C-x * 0] 初期化")))))
 
-;; F7 で Calculator（簡易電卓）を即起動
-(global-set-key [f7] #'calculator)
+;; F7 で Calc を即起動（電卓を呼び出す感覚で）
+(global-set-key [f7] #'calc)
 
 ;; M-x calculator で表示が切れる問題への対策（ウィンドウ高さを最低4行に拡張）
 (add-hook 'calculator-mode-hook
@@ -3067,12 +3118,7 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
     (setq-local line-spacing 0.2)
     (setq-local fill-column 80)
     (visual-line-mode 1))
-  (add-hook 'nov-mode-hook #'my/nov-mode-hook)
-
-  ;; F4はグローバルではimenu-listサイドバーだが、nov-modeバッファ内では
-  ;; EPUB標準の目次(nov-goto-toc)を優先する。nov-mode-mapへのローカル
-  ;; バインドなので、EPUB以外のバッファのF4には影響しない。
-  (define-key nov-mode-map [f4] 'nov-goto-toc))
+  (add-hook 'nov-mode-hook #'my/nov-mode-hook))
 
 ;; Calibre の ebook-convert を探す（PATH → 環境変数 ProgramFiles 系の順）
 (defun my/find-calibre-converter ()
@@ -3897,6 +3943,11 @@ EPUB への変換とオープンが終わったら、元の AZW/AZW3 バッフ�
                         :keys "M-%"))))
       (popup-menu map)))
 
+  ;; C-h をヘルプから解放して置換に割り当てる（Windows的な"Ctrl+H=置換"の
+  ;; 感覚に合わせる）。ヘルプ機能自体はEmacs標準でF1にも同じ
+  ;; help-command が既定で割り当たっているため、F1に一本化する形で残る。
+  (global-set-key (kbd "C-h") #'my/visual-replace-menu)
+
   ;; キーバインドの設定
   (global-set-key (kbd "M-%") 'my/visual-replace-smart)
   (global-set-key (kbd "C-M-%") 'my/visual-replace-regexp-smart)
@@ -4146,9 +4197,9 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
      '("u" . meow-undo)
      '("U" . meow-undo-in-selection)
      '("v" . meow-visit)
-     ;; Migemo対応のconsult検索。meow-visitと違い選択状態にはならない、
-     ;; ライブプレビュー付き一覧から探してジャンプするだけの用途。
-     '("/" . my/consult-line-migemo)
+     ;; Vim風の検索。isearch-forward/backwardはMigemo対応済み(6節)。
+     '("/" . isearch-forward)
+     '("?" . isearch-backward)
      '("w" . meow-mark-word)
      '("W" . meow-mark-symbol)
      '("x" . meow-line)
