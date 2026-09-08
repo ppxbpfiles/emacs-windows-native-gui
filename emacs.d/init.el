@@ -1822,7 +1822,9 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   ----------------------------------------------------------------------
   [p] メインメニューに戻る            [q] 閉じる
 "
-  ("f" (progn (require 'obsidian) (call-interactively #'obsidian-find-file)))
+  ;; obsidian-find-file は現行の obsidian.el では非対話的な内部関数になっており、
+  ;; ファイルジャンプ用の対話コマンドは obsidian-jump に置き換わっている
+  ("f" (progn (require 'obsidian) (call-interactively #'obsidian-jump)))
   ("n" (progn (require 'obsidian) (call-interactively #'obsidian-capture)))
   ("i" (progn (require 'obsidian) (call-interactively #'obsidian-insert-link)))
   ("c" (progn (require 'obsidian) (call-interactively #'obsidian-create-missing-file)))
@@ -2869,7 +2871,7 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
   (setq obsidian-wiki-link-p     nil)
   ;; キーバインド（use-package :bind で書くと obsidian-mode-map を使えるが、
   ;;   global-set-key のままでも動作に問題はない）
-  (global-set-key (kbd "C-c o f") 'obsidian-find-file)
+  (global-set-key (kbd "C-c o f") 'obsidian-jump)
   (global-set-key (kbd "C-c o i") 'obsidian-insert-link)
   (global-set-key (kbd "C-c o c") 'obsidian-create-missing-file)
   (add-hook 'markdown-mode-hook 'obsidian-mode))
