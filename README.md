@@ -260,7 +260,6 @@
 - `agent-shell` — 対話型シェル拡張
 - `atomic-chrome` — GhostText 拡張機能との連携用 WebSocket サーバー
 - `autothemer` — テーマ定義用ユーティリティ
-- `beacon` — カーソル移動・スクロール時の位置フラッシュエフェクト
 - `bicycle` — 見出し折りたたみ（outline-minor-mode 連携）
 - `calfw` / `calfw-howm` / `calfw-org` — カレンダー表示・スケジュール統合
 - `cape` — 補完バックエンド拡張（capf）
@@ -291,6 +290,7 @@
 - `org-download` — ドラッグ＆ドロップによる画像保存・Markdown挿入
 - `persist` — 変数の状態永続化
 - `persistent-scratch` — scratchバッファ内容の保存と自動復元
+- `pulsar` — カーソル移動・スクロール・ウィンドウ切り替え時の行パルスエフェクト
 - `puni` — 括弧・リストの構造を意識した編集（Meow用に囲み選択も追加設定済み）
 - `rainbow-delimiters` — 括弧・ブラケットを深さごとに色分け表示
 - `tr-ime` — Windows IME 制御連携（w32-ime 互換）
