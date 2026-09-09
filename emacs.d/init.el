@@ -301,28 +301,6 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
   (load my/frame-geometry-file nil t))
 (add-hook 'kill-emacs-hook #'my/save-frame-geometry)
 
-;; *scratch* バッファの内容を終了時に保存し、起動時に復元する
-(use-package persistent-scratch
-  :config
-  ;; 🌟 デフォルトの保存先は user-emacs-directory 配下（＝ポータブルドライブ上）
-  ;; になるため、終了時の固まり対策としてまずローカルキャッシュに変更する。
-  (setq persistent-scratch-save-file
-        (my/local-cache-file "persistent-scratch"))
-  (defvar my/persistent-scratch-usb-file
-    (expand-file-name "persistent-scratch" user-emacs-directory))
-  (my/maybe-pull-from-usb persistent-scratch-save-file my/persistent-scratch-usb-file)
-
-  (persistent-scratch-setup-default)
-  ;; 自動保存（idle時・バッファ変更時）も有効にする
-  (persistent-scratch-autosave-mode 1)
-
-  ;; persistent-scratch-save が呼ばれる度（終了時／idle自動保存時）に
-  ;; USBへも非同期でコピーする。終了を待たせないだけでなく、
-  ;; 普段の自動保存のタイミングでもUSB側が追従してくれる。
-  (advice-add 'persistent-scratch-save :after
-              (lambda (&rest _)
-                (my/async-copy-to-usb persistent-scratch-save-file
-                                       my/persistent-scratch-usb-file))))
 
 
 ;; =====================================================================
@@ -348,6 +326,29 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
 
 (require 'use-package-ensure)
 (setq use-package-always-ensure t)
+
+;; *scratch* バッファの内容を終了時に保存し、起動時に復元する
+(use-package persistent-scratch
+  :config
+  ;; 🌟 デフォルトの保存先は user-emacs-directory 配下（＝ポータブルドライブ上）
+  ;; になるため、終了時の固まり対策としてまずローカルキャッシュに変更する。
+  (setq persistent-scratch-save-file
+        (my/local-cache-file "persistent-scratch"))
+  (defvar my/persistent-scratch-usb-file
+    (expand-file-name "persistent-scratch" user-emacs-directory))
+  (my/maybe-pull-from-usb persistent-scratch-save-file my/persistent-scratch-usb-file)
+
+  (persistent-scratch-setup-default)
+  ;; 自動保存（idle時・バッファ変更時）も有効にする
+  (persistent-scratch-autosave-mode 1)
+
+  ;; persistent-scratch-save が呼ばれる度（終了時／idle自動保存時）に
+  ;; USBへも非同期でコピーする。終了を待たせないだけでなく、
+  ;; 普段の自動保存のタイミングでもUSB側が追従してくれる。
+  (advice-add 'persistent-scratch-save :after
+              (lambda (&rest _)
+                (my/async-copy-to-usb persistent-scratch-save-file
+                                       my/persistent-scratch-usb-file))))
 
 ;; --- 起動時ダッシュボード画面 (emacs-dashboard) ---
 (use-package dashboard
@@ -558,23 +559,44 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
 ;; 現在の編集行を常時ハイライトする (hl-line)
 (global-hl-line-mode 1)
 
-;; カーソルを見失わないように、移動・スクロール時に光るエフェクトを追加 (beacon)
-(use-package beacon
+;; カーソルを見失わないように、移動・スクロール・ウィンドウ切り替え時に行を光らせる (pulsar)
+(use-package pulsar
   :ensure t
   :config
-  (beacon-mode 1)
-  (setq beacon-size 35           ; エフェクトの幅
-        beacon-blink-duration 0.3) ; エフェクト時間（秒）
+  (pulsar-global-mode 1)
 
-  ;; テーマの明暗（Light/Dark）に合わせてビーコンの色を自動調整する
-  (defun my/update-beacon-color (&rest _)
-    (setq beacon-color
-          (if (eq (frame-parameter nil 'background-mode) 'dark)
-              "#00ffff"   ; ダークテーマ用（シアン / 水色）
-            "#008b8b")))  ; ライトテーマ用（ダークシアン）
-  ;; 初期反映およびテーマ切り替えフックへの登録
-  (my/update-beacon-color)
-  (add-hook 'enable-theme-functions #'my/update-beacon-color))
+  ;; ウィンドウ切り替え時にフォーカス先をパルス
+  (setq pulsar-pulse-on-window-change t)
+
+  ;; パルスの滑らかさ・フェード速度設定
+  (setq pulsar-iterations 15)       ; パルスのフェード回数
+  (setq pulsar-delay 0.04)          ; 反復ごとのディレイ（約0.6秒）
+
+  ;; パルスの色（テーマに合わせて鮮やかなシアンを設定）
+  (setq pulsar-face 'pulsar-cyan)
+  (defun my/update-pulsar-color (&rest _)
+    (let ((dark (eq (frame-parameter nil 'background-mode) 'dark)))
+      (set-face-attribute 'pulsar-cyan nil
+                          :background (if dark "#008b8b" "#8eecf4")
+                          :foreground 'unspecified)))
+  (my/update-pulsar-color)
+  (add-hook 'enable-theme-functions #'my/update-pulsar-color)
+
+  ;; パルスを発生させるコマンドを追加
+  ;; （スクロール、isearch、recenter 等は標準で登録されています）
+  (dolist (cmd '(consult-line
+                 consult-outline
+                 consult-buffer
+                 consult-recent-file
+                 consult-ripgrep
+                 my/consult-ripgrep-project
+                 my/consult-fd-project
+                 other-window
+                 handle-switch-frame
+                 mouse-set-point
+                 pixel-scroll-interpolate-down
+                 pixel-scroll-interpolate-up))
+    (add-to-list 'pulsar-pulse-functions cmd)))
 
 ;; にゃんこバー（タイムライン進行度バー）
 (use-package nyan-mode
@@ -1464,7 +1486,8 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
   :after vertico-posframe
   :config
   (setq vertico-multiform-commands
-        '((my/consult-line-symbol-at-point posframe)))
+        '((my/consult-line-symbol-at-point posframe)
+          (my/context-menu-popup-search posframe)))
   (vertico-multiform-mode 1))
 
 (use-package orderless
@@ -1561,10 +1584,15 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
 
 ;; Migemo を強制して consult-line を起動
 (defun my/consult-line-migemo ()
-  "通常検索と Migemo（ローマ字で日本語検索）を併用して consult-line を起動します。"
+  "通常検索と Migemo（ローマ字で日本語検索）を併用して consult-line を起動します。
+選択範囲がある場合はその文字列を初期入力としてセットします。"
   (interactive)
-  (let ((consult--regexp-compiler #'my/consult-migemo-compiler))
-    (consult-line)))
+  (let ((consult--regexp-compiler #'my/consult-migemo-compiler)
+        (initial (when (use-region-p)
+                   (prog1 (buffer-substring-no-properties
+                           (region-beginning) (region-end))
+                     (deactivate-mark)))))
+    (consult-line initial)))
 
 ;; 選択範囲があればその文字列を、なければカーソル下の単語を consult-line で検索
 (defun my/consult-line-symbol-at-point ()
@@ -1951,7 +1979,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   ---------------------------------------------------------
   [c] cmd.exe (conpty)           [p] PowerShell (conpty)
   [C] 電卓メニュー (Calc)        [T] テキスト変換
-  [q] 閉じる
+  [?] Meow 操作ガイド            [q] 閉じる
 "
   ("e" consult-locate)
   ("s" my/consult-ripgrep-project)
@@ -1975,6 +2003,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   ("T" hydra-text/body)
   ("d" lookup)
   ("O" moccur)
+  ("?" (if (fboundp 'hydra-meow-help/body) (hydra-meow-help/body) (message "Meow は未ロードです")))
   ("q" nil :color blue))
 
 ;; --- Hydra をメニューバーに統合 ---
@@ -1988,6 +2017,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
     (define-key menu-map [hydra-epub]       '(menu-item "EPUB リーダー" my/nov-open-epub :keys "M-o P"))
     (define-key menu-map [hydra-new-frame]  '(menu-item "新しいウィンドウを開く" make-frame :keys "M-o n"))
     (define-key menu-map [separator-2]      '(menu-item "--"))
+    (define-key menu-map [hydra-meow-guide] '(menu-item "Meow 操作ガイド" (lambda () (interactive) (if (fboundp 'hydra-meow-help/body) (hydra-meow-help/body) (message "Meow は未ロードです"))) :keys "M-o ?"))
     (define-key menu-map [hydra-marker]     '(menu-item "カラーマーカー" hydra-marker/body :keys "M-o M"))
     (define-key menu-map [hydra-calc]       '(menu-item "電卓" hydra-calc/body :keys "M-o C"))
     (define-key menu-map [hydra-calendar]   '(menu-item "カレンダー" my/open-calendar :keys "M-o L"))
@@ -2408,10 +2438,10 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
                  :lookup #'consult--lookup-member
                  :category 'youtube-video))
             (remove-hook 'minibuffer-setup-hook #'my/youtube--minibuffer-setup)
-            (when-let ((buf (get-buffer my/youtube--thumbnail-buffer-name)))
+            (when-let* ((buf (get-buffer my/youtube--thumbnail-buffer-name)))
               (delete-windows-on buf)
               (kill-buffer buf)))))
-    (if-let ((url (get-text-property 0 'youtube-url selected)))
+    (if-let* ((url (get-text-property 0 'youtube-url selected)))
         (browse-url url)
       (message "選択した候補からURLを取得できませんでした: %S" selected))))
 
@@ -2795,9 +2825,28 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
 (add-hook 'howm-mode-hook 'iimage-mode)
 (add-hook 'markdown-mode-hook 'iimage-mode)
 (with-eval-after-load 'iimage
+  ;; altテキスト付きの画像記法にも対応
   (setq iimage-mode-image-regex-alist
-        (cons '("!\\[\\](\\([^)]+\\))" . 1)
-              iimage-mode-image-regex-alist)))
+        (cons '("!\\[.*?\\](\\([^)]+\\))" . 1)
+              iimage-mode-image-regex-alist))
+
+  ;; 🌟 Windows環境でのフリーズ対策:
+  ;; Web上の画像URL（http://, https://）や UNC パス（//...）が含まれている場合、
+  ;; locate-file が Windows のネットワーク探索（SMB/WebDAV）を走らせて
+  ;; タイムアウトするまで数分間 Emacs 全体がフリーズするのを防ぐ。
+  (defun my/iimage-mode-buffer-skip-urls (orig-fn &rest args)
+    "URL や UNC パスによる Windows ネットワーク解決タイムアウト（フリーズ）を抑止。"
+    (cl-letf* ((orig-locate-file (symbol-function 'locate-file))
+               ((symbol-function 'locate-file)
+                (lambda (filename path &rest r)
+                  (if (or (string-prefix-p "//" filename)
+                          (string-prefix-p "\\\\" filename)
+                          (string-match-p "\\`[a-zA-Z]+://" filename))
+                      nil
+                    (apply orig-locate-file filename path r)))))
+      (apply orig-fn args)))
+
+  (advice-add 'iimage-mode-buffer :around #'my/iimage-mode-buffer-skip-urls))
 (setq max-image-size 4.0)
 
 ;; ⑥⑦ org-download を howm/markdown で使う
@@ -3694,6 +3743,12 @@ EPUB への変換とオープンが終わったら、元の AZW/AZW3 バッフ�
 
 ;; --- コンテキストメニュー本体 ---
 
+(defun my/context-menu-popup-search (e)
+  "選択範囲またはカーソル下の単語で小窓（posframe）検索を開きます。"
+  (interactive "e")
+  (unless (use-region-p) (mouse-set-point e))
+  (my/consult-line-symbol-at-point))
+
 (defun my/emeditor-context-menu (menu click)
   "EmEditor 風の右クリックメニュー項目を追加します。"
 
@@ -3702,10 +3757,8 @@ EPUB への変換とオープンが終わったら、元の AZW/AZW3 バッフ�
 
   ;; ── バッファ内検索（C-c l / popup-search 相当）──
   (define-key-after menu [my-popup-search]
-    `(menu-item "バッファ内検索 (popup-search)"
-                (lambda (e) (interactive "e")
-                  (unless (use-region-p) (mouse-set-point e))
-                  (my/consult-line-symbol-at-point))
+    '(menu-item "バッファ内検索 (popup-search)"
+                my/context-menu-popup-search
                 :keys "C-c l"
                 :help "選択範囲またはカーソル下の単語でバッファ内をライブ検索します"))
 
@@ -4138,6 +4191,84 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
       (ignore-errors (deactivate-input-method)))
     (meow-insert-exit))
 
+  ;; 🌟 Meow 日本語キーバインドガイド (INSERT / 編集モード)
+  (defhydra hydra-meow-insert-help (:color blue :hint nil)
+    "
+  === EMACS 編集操作ガイド (INSERT時も有効) ===  [Tab] NORMALガイドへ
+  [モード切替]              [Windows / CUA 基本]      [カーソル移動・選択]
+  ESC : NORMAL復帰 (IME OFF)  C-c / C-x : コピー / 切取   C-e : 行末/インデント/行頭
+                              C-v / C-z : 貼付 / Undo   Shift+矢印 : 範囲選択
+  [強力な編集支援]            C-y : やり直し (Redo)     Alt+ドラッグ : 矩形選択
+  C-t : 自動繰返し (dmacro)   M-z : Undo履歴ツリー      C-RET : 矩形選択開始
+  C-h : リアルタイム置換      C-s : 上書き保存
+  M-％ : スマート置換         C-a : 全選択/解除トグル   [補完・検索]
+  C-> : 次の同単語にカーソル  C-w : バッファ閉じる      Tab : 補完決定 (Corfu)
+  C-< : 前の同単語にカーソル                            C-f : 検索 (Migemo)
+  C-c = : その場数式計算      F1 / C-c ? : このガイド   F3 / S-F3 : 次/前を検索
+  ----------------------------------------------------------------------
+  [Tab / n] NORMALへ   [C-]] 強制脱出 (非常口)   [H] 標準ヘルプ   [q / ESC] 閉じる
+"
+    ("<tab>" (if (fboundp 'hydra-meow-help/body) (hydra-meow-help/body)) :color blue)
+    ("TAB" (if (fboundp 'hydra-meow-help/body) (hydra-meow-help/body)) :color blue)
+    ("n" (if (fboundp 'hydra-meow-help/body) (hydra-meow-help/body)) :color blue)
+    ("H" (call-interactively #'help-command) :color blue)
+    ("q" nil :color blue)
+    ("<escape>" nil :color blue))
+
+  ;; 🌟 Meow 日本語キーバインドガイド (NORMAL モード)
+  (defhydra hydra-meow-help (:color blue :hint nil)
+    "
+  === MEOW 操作ガイド: NORMAL モード ===  [Tab] INSERTガイドへ
+  [移動]                    [選択 (マーク)]           [編集 / 挿入]
+  h / j / k / l : 左 下 上 右  w : 単語を選択           i : カーソル位置で入力 (INSERT)
+  b / e         : 単語移動    x : 1行を選択 (連打で拡張) a : カーソル直後で入力 (INSERT)
+  < / >         : 先頭 / 末尾 c : 選択を消して入力     I : 上に空行を開いて入力
+  f / t         : 文字へ移動  d : 選択(文字)を削除     A : 下に空行を開いて入力
+  ----------------------------------------------------------------------
+  [検索 / 反転]             [Puni 構造編集]          [コピー / 貼り付け]
+  / / ?   : 検索 / 逆方向   ( : 式全体を選択(括弧込)   y : コピー (M-0〜9でレジスタ可)
+  n / N   : 次 / 前の一致   ) : 式の中身だけを選択     s : 切り取り (M-0〜9でレジスタ可)
+  - n     : 逆検索 (Meow)   SPC p ( : 選択を( )で包む  p : 貼り付け (クリップボード互換)
+  ;       : 選択方向を反転  SPC p s : 囲み括弧を外す   u : 元に戻す (Undo)
+  g / ESC : 選択解除
+  ----------------------------------------------------------------------
+  [Tab / i] INSERTへ   [C-]] 強制脱出 (非常口)   [H] 標準ヘルプ   [q / ESC] 閉じる
+"
+    ("<tab>" hydra-meow-insert-help/body :color blue)
+    ("TAB" hydra-meow-insert-help/body :color blue)
+    ("i" hydra-meow-insert-help/body :color blue)
+    ("H" (call-interactively #'help-command) :color blue)
+    ("q" nil :color blue)
+    ("<escape>" nil :color blue))
+
+  ;; 🌟 F1 スマートヘルプ：現在のモード（NORMAL / INSERT）に応じて適切なガイドを表示
+  (defun my/smart-help ()
+    "現在のモード（NORMAL / INSERT）に応じて適切な操作ガイドを表示する。
+Meow 未ロード時は通常の Emacs ヘルプを開く。"
+    (interactive)
+    (cond
+     ((bound-and-true-p meow-insert-mode)
+      (hydra-meow-insert-help/body))
+     ((bound-and-true-p meow-mode)
+      (hydra-meow-help/body))
+     (t
+      (call-interactively #'help-command))))
+
+  ;; F1 でスマート操作ガイドを起動、S-F1 で Emacs 標準ヘルプ
+  (global-set-key (kbd "<f1>") #'my/smart-help)
+  (global-set-key (kbd "S-<f1>") #'help-command)
+
+  (defun my/meow-backward-line (n)
+    "上の行を選択・拡張します（x の逆方向）。"
+    (interactive "p")
+    (meow-line (- n)))
+
+  (defun my/meow-search-backward ()
+    "現在の選択文字列を上方向（逆方向）に向かって検索します（Vim の N 相当）。"
+    (interactive)
+    (let ((current-prefix-arg -1))
+      (call-interactively #'meow-search)))
+
   (defun my/meow-setup ()
     "Meow公式のQWERTY向け推奨キーバインド。"
     (setq meow-cheatsheet-layout meow-cheatsheet-layout-qwerty)
@@ -4166,7 +4297,7 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
      '("9" . meow-digit-argument)
      '("0" . meow-digit-argument)
      '("/" . meow-keypad-describe-key)
-     '("?" . meow-cheatsheet))
+     '("?" . hydra-meow-help/body))
 
     ;; NORMAL state（通常の編集コマンド）
     (meow-normal-define-key
@@ -4212,11 +4343,12 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
      '("L" . meow-right-expand)
      '("m" . meow-join)
      '("n" . meow-search)
+     '("N" . my/meow-search-backward)    ; Vim風: 逆方向検索
      '("o" . meow-block)
      '("O" . meow-to-block)
      '("p" . my/meow-paste)
      '("q" . meow-quit)
-     '("Q" . meow-goto-line)
+     '("Q" . meow-quit)             ; 誤爆防止: Shift+q でも安全にキャンセル
      '("r" . meow-replace)
      '("R" . meow-swap-grab)
      '("s" . my/meow-cut)
@@ -4230,7 +4362,7 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
      '("w" . meow-mark-word)
      '("W" . meow-mark-symbol)
      '("x" . meow-line)
-     '("X" . meow-goto-line)
+     '("X" . my/meow-backward-line)     ; 誤爆防止: 上の行を選択 (x の逆方向)
      '("y" . my/meow-copy)
      '("Y" . meow-sync-grab)
      '("z" . meow-pop-selection)
@@ -4250,8 +4382,10 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
   ;; macOS記事の mac-ime-deactivate に相当するのは、この環境(tr-ime)
   ;; では標準の deactivate-input-method（11b節のisearch/ミニバッファ
   ;; 抑制と同じ関数）。
-  (meow-define-keys 'insert
-    '("<escape>" . my/meow-insert-exit))
+  (with-eval-after-load 'meow
+    (meow-define-keys 'insert
+    '("<escape>" . my/meow-insert-exit)
+    '("C-c ?" . hydra-meow-insert-help/body))
 
   ;; --- kbdシミュレーション対象キーの補正 ---
   ;; Meowの一部コマンド(移動・貼り付け等)は「指定したキーを押した体で
@@ -4274,6 +4408,12 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
   ;; ポップアップが出てしまう。kill-regionを直接呼ぶことでこれを回避。
   (setq meow--kbd-forward-char "<right>")
   (setq meow--kbd-yank "C-v")
+
+  ;; --- ターミナルバッファの初期状態を INSERT に設定 ---
+  ;; conpty / term では起動直後からそのままコマンドを打てるようにする。
+  ;; 出力ログの閲覧やコピーをしたい時だけ ESC で NORMAL に切り替える。
+  (add-to-list 'meow-mode-state-list '(conpty-mode . insert))
+  (add-to-list 'meow-mode-state-list '(term-mode . insert))
 
   ;; モードラインにMeowの状態表示（<N>/<I>/<M>等）を追加する。
   ;; 5節で mode-line-format を独自リストに差し替えているため、
@@ -4311,8 +4451,21 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
   (puni-global-mode)
 
   ;; --- INSERT state: Backspaceを構造を壊さない削除に差し替え ---
-  (meow-define-keys 'insert
-    '("<backspace>" . puni-backward-delete-char))
+  ;; conpty / term-mode 等の端末バッファでは、バッファ直接編集ではなく
+  ;; 端末プロセスへ Backspace (\C-?) を送信する必要があるため切り分ける。
+  (defun my/meow-backward-delete-char ()
+    "conpty/term等の端末バッファではプロセスへBackspaceを送信し、
+通常バッファではpuniによる構造認識削除を行う。"
+    (interactive)
+    (if (derived-mode-p 'conpty-mode 'term-mode)
+        (if (fboundp 'term-send-backspace)
+            (term-send-backspace)
+          (term-send-raw-string "\C-?"))
+      (puni-backward-delete-char)))
+
+  (with-eval-after-load 'meow
+    (meow-define-keys 'insert
+    '("<backspace>" . my/meow-backward-delete-char))
 
   ;; --- NORMAL state: 括弧キーで囲み構造をそのまま選択 ---
   ;; Meow標準の meow-inner-of-thing/meow-bounds-of-thing（","/"."）は
@@ -4334,7 +4487,7 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
    '("p <" . puni-wrap-angle)    ; 選択範囲を < > で包む
    '("p s" . puni-splice)        ; 囲んでいる括弧だけを外す
    '("p l" . puni-slurp-forward) ; 次の要素を括弧の中に取り込む
-   '("p b" . puni-barf-forward)))  ; 括弧内の最後の要素を外に出す
+     '("p b" . puni-barf-forward)))))
 
 ;; =====================================================================
 ;; 最終処理: GUIカスタマイズ設定 (custom.el) のロード
@@ -4343,5 +4496,8 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
 ;; =====================================================================
 (when (and custom-file (file-exists-p custom-file))
   (load custom-file nil t))
+;; custom.el 内の過去ハッシュ値による上書きを防ぎ、テーマ確認プロンプトを完全に抑止
+(setq custom-safe-themes t)
+
 
 
