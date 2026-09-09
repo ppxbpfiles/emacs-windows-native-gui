@@ -36,6 +36,9 @@ NORMAL/INSERT/MOTION等の状態を持つモーダル編集レイヤー。CUAの
 | `/` | `isearch-forward`（Vim風の検索開始。Migemo対応） |
 | `?`（Shift+/） | `isearch-backward` |
 | `n` | `v`で使った検索条件のまま次を検索（meow-search） |
+| `N` | 直前の検索条件のまま逆方向（上へ）検索（Vim風） |
+| `- n` | 逆方向に検索（Meow標準の負の引数操作） |
+| `;` | 選択の向きを前後に反転（meow-reverse） |
 | `↓` / `↑`（isearch中のみ） | 次のマッチ / 前のマッチへ（`isearch-repeat-forward`/`backward`。C-s/C-r連打の代わり） |
 | `(` | 今いる場所を囲むS式全体を選択（Vimの`da(`相当、puni） |
 | `)` | 今いる場所を囲むS式の中身を選択（Vimの`di(`相当、puni） |
