@@ -3,6 +3,11 @@
 ;; init.el — Windows Emacs 個人設定
 ;; =====================================================================
 
+;; 🌟 起動直後にまずウィンドウ（初期フレーム）を画面に即座に表示する
+(when (display-graphic-p)
+  (set-frame-parameter nil 'visibility t)
+  (redisplay t))
+
 ;; 🌟 ネットワークエラー対策 (unknown address family)
 ;; IPv6 を無効にして IPv4 を優先するように設定します
 (setq network-lookup-address-preference 'ipv4)
@@ -26,6 +31,7 @@
 ;; load?" という確認プロンプトを毎回出さないようにする(全テーマを安全と
 ;; みなす)
 (setq custom-safe-themes t)
+(advice-add 'custom-theme-load-confirm :override (lambda (&rest _) t))
 
 ;; 🌟 終了時の固まり対策（共通ローカルキャッシュ ＋ USBへの非同期同期）
 ;; user-emacs-directory は USB 等のポータブル/ネットワークドライブ上にある
@@ -312,12 +318,13 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
       '(("gnu"   . "https://elpa.gnu.org/packages/")
         ("nongnu" . "https://elpa.nongnu.org/nongnu/") 
         ("melpa" . "https://melpa.org/packages/")))
-(package-initialize)
+;; package-quickstart 有効時は自動でロードされるため重複実行を回避
+(unless package-quickstart
+  (package-initialize))
 
-;; パッケージリストが空の場合（初回起動・新環境）は MELPA から取得する
-;; これにより use-package :ensure t が正しく機能してパッケージが自動インストールされる
-(unless package-archive-contents
-  (message "パッケージリストを取得中...")
+;; パッケージアーカイブがローカルに存在しない初回起動時のみ取得（毎回のネット接続待ちを防止）
+(unless (file-exists-p (expand-file-name "archives/melpa" package-user-dir))
+  (message "初回パッケージリストを取得中...")
   (package-refresh-contents))
 
 ;; use-package が未インストールの場合は自動インストール（Emacs 29 未満向け）
@@ -1094,6 +1101,10 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
                   (w32-shell-execute "open" (subst-char-in-string ?/ ?\\ fpath))
                   (message "再生: %s" (file-name-nondirectory fpath)))
               (message "ファイルが存在しません: %s" fpath))))))))
+
+(defalias 'mp3-search #'my/m3u8-search-and-play)
+(defalias 'mp3-play #'my/m3u8-search-and-play)
+(defalias 'm3u8-search-and-play #'my/m3u8-search-and-play)
 
 
 ;; タブバー・モードラインのダブルクリックで外部プログラム起動
@@ -2442,8 +2453,17 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
               (delete-windows-on buf)
               (kill-buffer buf)))))
     (if-let* ((url (get-text-property 0 'youtube-url selected)))
-        (browse-url url)
+        (let ((chrome-path
+               (cl-find-if #'file-exists-p
+                           '("C:/Program Files/Google/Chrome/Application/chrome.exe"
+                             "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe"))))
+          (if chrome-path
+              (start-process "youtube-app" nil chrome-path (format "--app=%s" url))
+            (browse-url url)))
       (message "選択した候補からURLを取得できませんでした: %S" selected))))
+
+(defalias 'youtube-search #'my/consult-youtube)
+(defalias 'consult-youtube #'my/consult-youtube)
 
 ;; --- project.el と fd の連携 ---
 (with-eval-after-load 'project
@@ -4482,12 +4502,219 @@ Meow 未ロード時は通常の Emacs ヘルプを開く。"
   ;; 頻度が低い操作なのでSPC経由にまとめる。
   (meow-leader-define-key
    '("p (" . puni-wrap-round)    ; 選択範囲を ( ) で包む
-   '("p [" . puni-wrap-square)   ; 選択範囲を [ ] で包む
-   '("p {" . puni-wrap-curly)    ; 選択範囲を { } で包む
-   '("p <" . puni-wrap-angle)    ; 選択範囲を < > で包む
-   '("p s" . puni-splice)        ; 囲んでいる括弧だけを外す
-   '("p l" . puni-slurp-forward) ; 次の要素を括弧の中に取り込む
+     '("p [" . puni-wrap-square)   ; 選択範囲を [ ] で包む
+     '("p {" . puni-wrap-curly)    ; 選択範囲を { } で包む
+     '("p <" . puni-wrap-angle)    ; 選択範囲を < > で包む
+     '("p s" . puni-splice)        ; 囲んでいる括弧だけを外す
+     '("p l" . puni-slurp-forward) ; 次の要素を括弧の中に取り込む
      '("p b" . puni-barf-forward)))))
+
+
+;; =====================================================================
+;; U-NEXT 検索・再生連携 (Vertico補完 + Chrome Appモード)
+;; =====================================================================
+
+(require 'cl-lib)
+
+(defun my/unext-search (query)
+  "U-NEXT の動画を検索し、ミニバッファ（Vertico）で作品を選択して専用ウィンドウで開く。"
+  (interactive "sU-NEXT 検索キーワード: ")
+  (let* ((script-candidates
+          (list (expand-file-name "unext_search.py" user-emacs-directory)
+                (expand-file-name "unext_search.py" (file-name-directory (or load-file-name buffer-file-name default-directory)))
+                (expand-file-name "unext_search.py" default-directory)))
+         (script (cl-find-if #'file-exists-p script-candidates)))
+    (unless script
+      (user-error "unext_search.py が見つかりませんでした"))
+    (message "U-NEXT: 「%s」を検索中..." query)
+    (let* ((coding-system-for-read 'utf-8)
+           ;; Windows環境では引数エンコードに UTF-8 を使うと CP932 誤変換で文字化けするため locale-coding-system を指定
+           (coding-system-for-write (if (eq system-type 'windows-nt) locale-coding-system 'utf-8))
+           (output (with-output-to-string
+                     (call-process "python" nil standard-output nil script query)))
+           (items (condition-case nil
+                      (json-parse-string output :array-type 'list :object-type 'alist)
+                    (error nil))))
+      (if (null items)
+          (message "U-NEXT: 「%s」に一致する作品が見つかりませんでした" query)
+        (let* ((candidates
+                (mapcar
+                 (lambda (item)
+                   (let* ((id (cdr (assq 'id item)))
+                          (title (cdr (assq 'title item)))
+                          (svod (cdr (assq 'svod item)))
+                          (catch (cdr (assq 'catchphrase item)))
+                          (badge (if svod "【見放題】" "【ポイント】"))
+                          (label (if (and catch (not (string-empty-p catch)))
+                                     (format "%-10s %s  ── %s" badge title catch)
+                                   (format "%-10s %s" badge title))))
+                     (cons label (cons id title))))
+                 items))
+               (chosen-label (completing-read "U-NEXT 作品を選択: " (mapcar #'car candidates) nil t))
+               (chosen-info (cdr (assoc chosen-label candidates)))
+               (chosen-id (car chosen-info))
+               (chosen-title (cdr chosen-info))
+               (url (format "https://video.unext.jp/title/%s" chosen-id))
+               (chrome-path
+                (cl-find-if #'file-exists-p
+                            '("C:/Program Files/Google/Chrome/Application/chrome.exe"
+                              "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe"))))
+          (message "U-NEXT: 「%s」を開きます..." chosen-title)
+          (if chrome-path
+              (start-process "unext-app" nil chrome-path (format "--app=%s" url))
+            (browse-url url)))))))
+
+(defalias 'unext-search #'my/unext-search)
+
+
+;; =====================================================================
+;; EWW (Emacs内蔵Webブラウザ) 最適化 ＆ ダークテーマ視認性向上
+;; =====================================================================
+;; 1. CA証明書の設定 (Emacs組み込みTLS・画像読み込み用)
+(with-eval-after-load 'gnutls
+  (let ((cert (expand-file-name "mcp-servers/tradingview-mcp/.venv/Lib/site-packages/certifi/cacert.pem"
+                                (getenv "USERPROFILE"))))
+    (when (file-exists-p cert)
+      (add-to-list 'gnutls-trustfiles cert))))
+
+;; 2. Web上の大容量ページ対応 ＆ HTTPS接続の堅牢化 (Windows curl使用)
+(let ((curl-bin (if (file-executable-p "C:/Windows/System32/curl.exe")
+                    "C:/Windows/System32/curl.exe"
+                  (executable-find "curl"))))
+  (when curl-bin
+    ;; Windows標準curlの場合、証明書失効検証ブロック対策として--ssl-no-revokeを追加
+    (setq eww-retrieve-command
+          (if (string-match-p "System32" curl-bin)
+              (list curl-bin "--ssl-no-revoke" "-s" "-L")
+            (list curl-bin "-s" "-L")))))
+
+;; 日本語など非ASCII文字を含むURLを自動的にパーセントエンコードしてcurlに渡す
+(with-eval-after-load 'eww
+  (advice-add 'eww-retrieve :filter-args
+              (lambda (args)
+                (cons (url-encode-url (car args)) (cdr args)))))
+
+;; 2. 不正な <comment> タグによる以降のページ消滅バグの防止 ＆ 見出しサイズの統一
+(with-eval-after-load 'shr
+  (defalias 'shr-tag-comment #'shr-generic)
+  ;; 本文は通常サイズを維持し、見出しだけ程よく拡大してメリハリをつける (案1)
+  (set-face-attribute 'shr-h1 nil :height 1.3  :weight 'bold)
+  (set-face-attribute 'shr-h2 nil :height 1.15 :weight 'bold)
+  (set-face-attribute 'shr-h3 nil :height 1.05 :weight 'bold))
+
+;; 3. 文字サイズ・配色の統一 ＆ ウィンドウ幅折り返し
+(setq shr-width nil)                         ; ウィンドウ幅に合わせて表示
+(setq shr-max-width nil)                     ; 最大幅制限を解除
+(add-hook 'eww-mode-hook #'visual-line-mode) ; 画面端で自然に折り返し
+;; 通常のバッファと全く同じ等幅フォント・文字サイズで統一描画
+(setq shr-use-fonts nil)
+;; Web独自色を無効化し、Emacsのダークテーマ色を統一適用（'C' キーで切り替え可能）
+(setq shr-use-colors nil)
+;; 初期状態では画像を読み込まず、文字だけを超爆速でレンダリング（'i' または 'I' キーで後から画像表示切替）
+(setq shr-inhibit-images t)
+(with-eval-after-load 'eww
+  (define-key eww-mode-map (kbd "i") #'eww-toggle-images))
+
+;; 4. EWW デフォルト検索エンジン ＆ ミニバッファ検索
+;;    Yahoo! JAPAN (Google検索インデックス採用・No-JS対応) を使用
+(setq eww-search-prefix "https://search.yahoo.co.jp/search?p=")
+
+(defun my/consult-web-search (&optional initial)
+  "ミニバッファでキーワードを入力し、Web検索（Yahoo! JAPAN / Google系）をEWWで開きます。"
+  (interactive)
+  (let ((query (read-string "Web検索 (EWW): " initial)))
+    (when (and query (not (string-blank-p query)))
+      (eww (format "%s%s" eww-search-prefix (url-hexify-string query))))))
+
+(defalias 'web-search #'my/consult-web-search)
+(defalias 'eww-search #'my/consult-web-search)
+
+;; 5. EWW 見出し目次機能 (imenu / consult-imenu 連携)
+;;    'o' キーまたは M-g i で記事内の全目次をミニバッファから一覧・ジャンプ
+(defun my/eww-imenu-index ()
+  "EWWバッファの見出し (shr-h1〜shr-h6) から imenu 用インデックスを作成します。"
+  (save-excursion
+    (goto-char (point-min))
+    (let ((index nil))
+      (while (not (eobp))
+        (let ((face (get-text-property (point) 'face)))
+          (when (and face (symbolp face) (string-match-p "\\`shr-h[1-6]" (symbol-name face)))
+            (let* ((start (point))
+                   (end (line-end-position))
+                   (title (string-trim (buffer-substring-no-properties start end))))
+              (when (> (length title) 0)
+                (push (cons title (copy-marker start)) index))
+              (goto-char end))))
+        (forward-line 1))
+      (nreverse index))))
+
+(add-hook 'eww-mode-hook
+          (lambda ()
+            (setq-local imenu-create-index-function #'my/eww-imenu-index)))
+
+(defun my/eww-jump-to-heading ()
+  "EWWバッファの見出し目次をミニバッファに一覧表示し、即座にジャンプします。"
+  (interactive)
+  (if (fboundp 'consult-imenu)
+      (consult-imenu)
+    (call-interactively #'imenu)))
+
+(with-eval-after-load 'eww
+  (define-key eww-mode-map (kbd "o") #'my/eww-jump-to-heading))
+
+;; 6. Wikipedia 専用ブラウザ環境 (リアルタイム候補補完 ＆ 爆速閲覧 ＆ 専用バッファ)
+;;    M-x wikipedia または C-c w で候補から選んで即座に閲覧可能
+(defun my/wikipedia-fetch-suggestions (query)
+  "Wikipedia OpenSearch API から検索候補のリストを取得する。"
+  (when (and query (not (string-blank-p query)))
+    (let* ((url (format "https://ja.wikipedia.org/w/api.php?action=opensearch&format=json&limit=20&search=%s"
+                        (url-hexify-string query)))
+           (output (with-temp-buffer
+                     (call-process (or (executable-find "curl") "C:/Windows/System32/curl.exe")
+                                   nil t nil "--ssl-no-revoke" "-s" url)
+                     (buffer-string)))
+           (json-array-type 'list)
+           (data (ignore-errors (json-read-from-string output))))
+      (if (and data (listp (cadr data)))
+          (cadr data)
+        nil))))
+
+(defun my/wikipedia-completion-table (string pred action)
+  "Vertico/ミニバッファ用の動的補完テーブル。"
+  (if (eq action 'metadata)
+      '(metadata (display-sort-function . identity)
+                 (cycle-sort-function . identity))
+    (let ((cands (my/wikipedia-fetch-suggestions string)))
+      (complete-with-action action cands string pred))))
+
+(defun my/wikipedia (&optional query)
+  "Wikipediaを専用バッファ (*Wikipedia*) で快適に閲覧します。
+ミニバッファでキーワードを入力するとリアルタイムに候補記事が表示されます。
+カーソル下の単語または選択範囲があれば初期入力値としてセットされます。"
+  (interactive
+   (let* ((default-word (if (use-region-p)
+                            (buffer-substring-no-properties (region-beginning) (region-end))
+                          (thing-at-point 'word t)))
+          (prompt (if default-word
+                      (format "Wikipedia (default %s): " default-word)
+                    "Wikipedia: "))
+          (input (completing-read prompt #'my/wikipedia-completion-table
+                                  nil nil nil nil default-word)))
+     (list (if (string-blank-p input) default-word input))))
+  (when (and query (not (string-blank-p query)))
+    (let* ((target-url (format "https://ja.m.wikipedia.org/wiki/%s"
+                               (url-hexify-string query)))
+           (buf (get-buffer-create "*Wikipedia*")))
+      ;; 専用バッファを用意してEWWで開く
+      (with-current-buffer buf
+        (unless (eq major-mode 'eww-mode)
+          (eww-mode)))
+      (pop-to-buffer-same-window buf)
+      (eww target-url))))
+
+(defalias 'wikipedia #'my/wikipedia)
+(global-set-key (kbd "C-c w") #'my/wikipedia)
+
 
 ;; =====================================================================
 ;; 最終処理: GUIカスタマイズ設定 (custom.el) のロード
@@ -4498,6 +4725,16 @@ Meow 未ロード時は通常の Emacs ヘルプを開く。"
   (load custom-file nil t))
 ;; custom.el 内の過去ハッシュ値による上書きを防ぎ、テーマ確認プロンプトを完全に抑止
 (setq custom-safe-themes t)
+(advice-add 'custom-theme-load-confirm :override (lambda (&rest _) t))
+
+;; ダークテーマでの視認性向上（選択範囲とカーソルの黒塗り解消）
+(defun my/apply-cursor-region-faces (&rest _)
+  (set-face-attribute 'region nil :background "#3a5f8b" :foreground 'unspecified)
+  (set-face-attribute 'cursor nil :background "#e0af68"))
+(my/apply-cursor-region-faces)
+(if (boundp 'enable-theme-functions)
+    (add-hook 'enable-theme-functions #'my/apply-cursor-region-faces)
+  (advice-add 'load-theme :after #'my/apply-cursor-region-faces))
 
 
 
