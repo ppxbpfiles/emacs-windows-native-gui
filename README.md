@@ -15,6 +15,7 @@
 ## 特徴
 
 - **ポータブル設計** — `user-emacs-directory` を `init.el` の場所から動的に解決するため、USB やフォルダごと移動しても動作します
+- **高速起動・オンデマンド読み込み（Lazy Loading）** — 100以上のパッケージ環境ながら約11秒台での快適な高速起動を実現。ボトルネックとなる Obsidian（Vault内ノート全スキャン）や howm の一括ロードを完全遅延化し、`package-quickstart` 環境下でもダッシュボード上に正確な読み込みパッケージ総数と起動秒数（例: `[105 packages loaded in 11.95 seconds]`）をリアルタイム表示します
 - **ダッシュボード（emacs-dashboard）** — 起動時に最近開いたファイルやブックマーク、プロジェクト一覧を綺麗にまとめた、カスタムバナー画像付きのホーム画面を表示します
 - **CUA モード前提** — `C-c / C-x / C-v / C-z` を Windows 標準のコピー・切り取り・貼り付け・アンドゥに割り当てつつ、Emacs 標準の `C-x` プレフィックスと共存させています
 - **GUI フル活用** — メニューバー・ツールバー（カスタムアイコン）・タブバー・右クリックメニュー（EmEditor 風）をすべて有効化
@@ -25,12 +26,13 @@
 - **リアルタイム置換（visual-replace）** — 文字入力と同時に、バッファ上で実際に置換された状態がリアルタイムでプレビューされ、置換ミスを未然に防ぎます
 - **ソフトナローイング（独自実装）** — 選択範囲の限定（Narrow）時に、範囲外を非表示にせずグレーアウト表示にして周囲の文脈を確認しやすくします
 - **Meow（モーダル編集）+ Puni（構造編集）** — CUAと共存する形でモーダル編集を追加。Helix/Kakoune風の選択内マッチ（`s`）・スマート置換（`r`）・行選択（`x`）・行分割（`C`）・ケース反転（`~`）や、レジスタ対応の切り取り/コピー/貼り付け、Puniによる括弧構造編集（囲み選択・wrap/slurp/barf）など強力な編集体系を統合しています
+- **EPUB 電子書籍リーダー（nov.el）の大幅機能拡張** — ヘッダーラインへの読書進捗（書籍名・章名・第X/Y章・進捗率%）の常時表示、電子書籍本棚機能（`B` / `my/nov-bookshelf`）、しおり（`m`: 挟む / `b`: ジャンプ / `M`: 一覧）、Vim風のスムーズ読書キー（`j`/`k`: 1行、`d`/`u`: 半画面、`o`: 全章目次 Consult ジャンプ）を搭載しています
 
 ## 主な構成
 
 | セクション | 内容 |
 |---|---|
-| 1. 起動・基本動作 | ダッシュボード画面（emacs-dashboard）、スプラッシュ画面、文字コード、バックアップ設定 |
+| 1. 起動・基本動作 | ダッシュボード画面（emacs-dashboard）、高速起動最適化・遅延読み込み（Lazy Loading）、文字コード、バックアップ設定 |
 | 3. 外観 | ef-themes、フォント（Utatane など）、ツールバーアイコン（Silk Icons） |
 | 4. 表示・スクロール | 行番号、スクロール挙動、全角スペース・TAB・行末スペース・正規表現キーワードの可視化 |
 | 5. モードライン | カスタムレイアウト、パスホバー表示 |
@@ -38,12 +40,12 @@
 | 8. キーバインド | CUA 互換、F キー割り当て、`M-o` Hydra ランチャー |
 | 11. 補完エコシステム | Vertico + Orderless + Consult + Migemo + Embark |
 | 12. multiple-cursors | マルチカーソル編集（`C->` / `C-<`） |
-| 13. howm | Obsidian 互換 Markdown メモ（howm-markdown.el）、`#タグ` ボタン、consult-ripgrep 連携 |
-| 14. Obsidian 連携 | obsidian.el によるノート検索・保存 |
+| 13. howm | Obsidian 互換 Markdown メモ（howm-markdown.el）、`#タグ` ボタン、遅延読み込み、consult-ripgrep 連携 |
+| 14. Obsidian 連携 | obsidian.el によるノート検索・保存（オンデマンド読み込み） |
+| 16. nov.el | EPUB 電子書籍リーダー、読書進捗ヘッダーライン表示、本棚（`B`）、しおり（`m`/`b`/`M`）、スムーズスクロール |
 | 19. リアルタイム置換 | visual-replace によるリアルタイムプレビュー付き置換（通常/正規表現） |
 | 20. 範囲外のグレーアウト | 独自実装によるソフトナローイング（範囲外のグレーアウト表示） |
 | 21b. Mozc 日本語入力 | mozc-modeless によるモードレス日本語入力、`C-\\` で手動 ON/OFF トグル（tr-ime / w32-ime は無効） |
-| 22. gptel | OpenAI / xAI / Gemini / OpenRouter 対応 LLMチャット |
 | 23. GhostText 連携 | atomic-chrome によるブラウザ入力欄のリアルタイム編集 |
 | 27. Meow | CUAと共存するモーダル編集。Helix/Kakoune風の選択内マッチ（`s`）・スマート置換（`r`）・行選択（`x`）・行分割（`C`）・Goto（`g`）・万能脱出（`ESC`）、F1スマートガイド、レジスタ対応の切り取り/コピー/貼り付けなど |
 | 28. Puni | 括弧・リストの構造を意識した編集（囲み選択、wrap/slurp/barf） |
@@ -190,7 +192,6 @@
 | cape | corfu 向け補完ソース拡張 |
 | migemo | 日本語ローマ字インクリメンタル検索 |
 | wgrep | grep 結果バッファを直接編集 |
-| fd-dired | fd を使った Dired ファイル検索 |
 
 ### メモ・ドキュメント
 
@@ -218,7 +219,7 @@
 | hydra | キーバインドメニュー |
 | casual / casual-symbol-overlay | Transient ベースのメニュー UI |
 | symbol-overlay | カーソル下の単語をカラーハイライト |
-| calfw / calfw-howm / calfw-org | カレンダー表示 |
+| calfw / calfw-howm | カレンダー表示 |
 | japanese-holidays | 日本の祝日データ |
 
 ### 編集補助
@@ -247,12 +248,6 @@
 | conpty | Windows ConPTY ターミナル（emacs-conpty） |
 | atomic-chrome | GhostText 拡張機能と連携したブラウザ入力欄の編集 |
 
-### AI 連携
-
-| パッケージ | 用途 |
-|---|---|
-| gptel | LLM チャット（OpenAI / xAI / Gemini / OpenRouter） |
-
 ### 全インストールパッケージ一覧 (MELPA)
 
 `init.el` の `package-selected-packages` に登録され、起動時に MELPA から自動インストールされるパッケージの一覧です（一部主要な依存パッケージも併記しています）。
@@ -262,7 +257,7 @@
 - `atomic-chrome` — GhostText 拡張機能との連携用 WebSocket サーバー
 - `autothemer` — テーマ定義用ユーティリティ
 - `bicycle` — 見出し折りたたみ（outline-minor-mode 連携）
-- `calfw` / `calfw-howm` / `calfw-org` — カレンダー表示・スケジュール統合
+- `calfw` / `calfw-howm` — カレンダー表示・スケジュール統合
 - `cape` — 補完バックエンド拡張（capf）
 - `casual-symbol-overlay` — transient ベースのカラーマーカーメニュー
 - `centaur-tabs` — バッファタブバー表示
@@ -271,9 +266,7 @@
 - `ef-themes` — 視認性の高いカラーテーマ集
 - `embark` / `embark-consult` — 選択候補への即時アクションランチャー
 - `ewal` — テーマ色カラーパレット連携
-- `fd-dired` — fd を使用した Dired 検索
 - `forest-blue-theme` — カラーテーマ（Forest Blue）
-- `gptel` — LLMチャットクライアント（Gemini / OpenAI 等）
 - `hide-mode-line` — 不要なウィンドウ（サイドバー等）でモードラインを非表示化
 - `imenu-list` — 右サイドバーのアウトライン見出し一覧
 - `japanese-holidays` — カレンダー用日本の祝日データ
@@ -323,6 +316,9 @@
 | my/obsidian-ripgrep-migemo | Obsidian vault を Migemo で全文検索 |
 | my/document-text-view | xdoc2txt / Pandoc でバイナリ文書をテキスト表示 |
 | my/nov-open-epub | EPUB ファイルを nov.el で開く |
+| my/nov-bookshelf | 電子書籍本棚：最近読んだ本や登録フォルダ内のEPUB/AZW3を一覧検索して開く（`B`） |
+| my/nov-header-line | ヘッダーラインに書籍タイトル・章名・章番号（第X/Y章）・読書進捗率（%）を常時表示 |
+| my/dashboard-get-loaded-packages-count | package-quickstart 環境下でもロード済みパッケージ数を正確に算出してダッシュボードに表示 |
 | my/eww-copy-markdown-link | EWW 閲覧ページのタイトルとURLを Markdown リンク形式でコピー（`w` / `y`） |
 | my/eww-search-at-point | カーソル下の単語または選択範囲で即座に EWW Web 検索 |
 | my/eww-open-in-new-tab | カーソル下のリンクを新しい EWW タブ（別バッファ）で開く（`M-Enter`） |
