@@ -24,7 +24,7 @@
 - **サクラエディタ風の正規表現キーワード強調** — テキストや Markdown 文書において、各種括弧（`「」` `【】` `（）` など）、引用符（`''` `""`）、および丸数字（`①-⑳`）を自動で色分け表示します
 - **リアルタイム置換（visual-replace）** — 文字入力と同時に、バッファ上で実際に置換された状態がリアルタイムでプレビューされ、置換ミスを未然に防ぎます
 - **ソフトナローイング（独自実装）** — 選択範囲の限定（Narrow）時に、範囲外を非表示にせずグレーアウト表示にして周囲の文脈を確認しやすくします
-- **Meow（モーダル編集）+ Puni（構造編集）** — CUAと共存する形でモーダル編集を追加。移動・削除・レジスタ付き切り取り/コピー/貼り付けをキーボードだけで完結でき、Puniにより括弧構造を意識した編集（囲み選択・wrap/slurp/barf）も行えます
+- **Meow（モーダル編集）+ Puni（構造編集）** — CUAと共存する形でモーダル編集を追加。Helix/Kakoune風の選択内マッチ（`s`）・スマート置換（`r`）・行選択（`x`）・行分割（`C`）・ケース反転（`~`）や、レジスタ対応の切り取り/コピー/貼り付け、Puniによる括弧構造編集（囲み選択・wrap/slurp/barf）など強力な編集体系を統合しています
 
 ## 主な構成
 
@@ -45,7 +45,7 @@
 | 21b. Mozc 日本語入力 | mozc-modeless によるモードレス日本語入力、`C-\\` で手動 ON/OFF トグル（tr-ime / w32-ime は無効） |
 | 22. gptel | OpenAI / xAI / Gemini / OpenRouter 対応 LLMチャット |
 | 23. GhostText 連携 | atomic-chrome によるブラウザ入力欄のリアルタイム編集 |
-| 27. Meow | CUAと共存するモーダル編集。レジスタ対応の切り取り/コピー/貼り付け（`M-0`〜`M-9`）、Vim風検索（`/`/`?`）など |
+| 27. Meow | CUAと共存するモーダル編集。Helix/Kakoune風の選択内マッチ（`s`）・スマート置換（`r`）・行選択（`x`）・行分割（`C`）・Goto（`g`）・万能脱出（`ESC`）、F1スマートガイド、レジスタ対応の切り取り/コピー/貼り付けなど |
 | 28. Puni | 括弧・リストの構造を意識した編集（囲み選択、wrap/slurp/barf） |
 
 その他：calfw（カレンダー）、Casual（Transient メニュー）、symbol-overlay（カラーマーカー）、Lookup（EPWING 辞書）、nov.el（EPUB）、empv（音楽再生）、zoxide 連携、fd / ripgrep 連携、visual-replace（リアルタイム置換）、独自実装のソフトナローイング（範囲外グレーアウト）
@@ -59,7 +59,8 @@
 | `Home` | ダッシュボードの表示 / 再描画（ダッシュボード上では閉じて元のバッファに戻る） |
 | `M-o` | Hydra ランチャー（各種サブメニュー） |
 | `F4` | アウトラインサイドバー開閉（imenu-list） |
-| `F5` | howm 環境トグル（ON: howm-menu を開く / OFF: 全バッファを閉じる） |
+| `F5` | バッファ再読み込み（ディスクから更新確認） |
+| `F8` | howm 環境トグル（ON: howm-menu を開く / OFF: 全バッファを閉じる）※ `M-o H` でも可 |
 | `C-\\` | mozc（日本語入力）ON / OFF トグル |
 | `C->` | 次の同じ単語にカーソル追加（multiple-cursors） |
 | `C-<` | 前の同じ単語にカーソル追加（multiple-cursors） |
@@ -313,7 +314,8 @@
 | my/wgrep-replace | ripgrepで複数ファイルを検索し、結果を直接編集して一括保存 |
 | my/ctx-add-quote | 選択範囲または現在行の行頭に引用記号（`> `）を挿入（右クリックメニュー連携） |
 | my/ctx-remove-quote | 選択範囲または現在行の行頭の引用記号（`>`）を削除（右クリックメニュー連携） |
-| my/howm-toggle | F5 で howm 環境を ON/OFF トグル |
+| my/revert-buffer-with-confirm | F5 で現在のバッファをディスクから再読み込み（更新確認） |
+| my/howm-toggle | F8 または M-o H で howm 環境を ON/OFF トグル |
 | my/consult-ripgrep-project | プロジェクトルートから ripgrep 検索 |
 | my/consult-ripgrep-word | カーソル下の単語で ripgrep 検索 |
 | my/consult-line-migemo | Migemo でバッファ内インクリメンタル検索 |
@@ -321,7 +323,24 @@
 | my/obsidian-ripgrep-migemo | Obsidian vault を Migemo で全文検索 |
 | my/document-text-view | xdoc2txt / Pandoc でバイナリ文書をテキスト表示 |
 | my/nov-open-epub | EPUB ファイルを nov.el で開く |
+| my/eww-copy-markdown-link | EWW 閲覧ページのタイトルとURLを Markdown リンク形式でコピー（`w` / `y`） |
+| my/eww-search-at-point | カーソル下の単語または選択範囲で即座に EWW Web 検索 |
+| my/eww-open-in-new-tab | カーソル下のリンクを新しい EWW タブ（別バッファ）で開く（`M-Enter`） |
+| my/eww-jump-to-heading | EWW 記事内の全見出し目次を Consult / imenu で一覧ジャンプ（`o`） |
+| my/consult-eww-history | EWW の閲覧履歴を Consult / Vertico でインクリメンタル検索・復元（`H`） |
+| my/consult-eww-bookmarks | EWW のブックマークを Consult / Vertico でインクリメンタル検索・ジャンプ（`B`） |
+| my/calfw-add-schedule | カレンダー選択日付に howm 予定を直接登録し即座に画面更新（`i` / `a`） |
+| my/calfw-create-howm-memo | カレンダー選択日付をタイトルにした howm 予定メモ（Markdown）を作成（`c`） |
+| my/weather | 気象庁公式データによる中四国・全国の週間天気予報テーブルを表示（`M-o W`） |
 | my/meow-cut / my/meow-copy / my/meow-paste | Meowの切り取り/コピー/貼り付け（`M-0`〜`M-9`前置でレジスタ0-9を指定可能） |
+| my/meow-select-matches-in-region | 選択範囲内のパターンにマッチする全箇所をBeacon化（Helix風選択内マッチ、Smart Case対応） |
+| my/meow-replace | ミニバッファ対話式の一括置換（空Enterでコピー内容置換、Helix風） |
+| my/meow-split-lines | 選択行を各行カーソル（Beacon）に分割（Helix風の `C`） |
+| my/meow-select-whole-buffer | バッファ全体を選択（Helix風の `%`） |
+| my/meow-toggle-case | 大文字・小文字トグル反転（Helix風の `~`） |
+| my/meow-goto-dispatch | Helix風 Goto ディスパッチャ（`50g` で指定行ジャンプ、`gh`/`gl`/`gg`/`ge`/`gi`） |
+| my/meow-cancel-selection | 万能脱出: 選択解除およびBeacon（マルチ選択）完全解除（`<escape>` / `q`） |
+| my/smart-help | F1 スマート操作ガイド（NORMAL / INSERT 状態に応じた図解ヘルプ表示） |
 | my/meow-insert-exit | MeowのINSERT終了時、IMEがONなら先にOFFにしてからNORMALへ復帰 |
 | my/run-agy-cmd-on-current-file | 現在のファイルを Google Antigravity(agy.exe) に渡し、cmd 外部窓で実行 |
 | my/run-agy-powershell-on-current-file | 現在のファイルを Google Antigravity(agy.exe) に渡し、PowerShell 外部窓で実行 |
