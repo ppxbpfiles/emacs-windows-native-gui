@@ -3,12 +3,12 @@
 ;; init.el — Windows Emacs 個人設定
 ;; =====================================================================
 
-;; 🌟 起動直後にまずウィンドウ（初期フレーム）を画面に即座に表示する
+;; 起動直後にまずウィンドウ（初期フレーム）を画面に即座に表示する
 (when (display-graphic-p)
   (set-frame-parameter nil 'visibility t)
   (redisplay t))
 
-;; 🌟 ネットワークエラー対策 (unknown address family)
+;; ネットワークエラー対策 (unknown address family)
 ;; IPv6 を無効にして IPv4 を優先するように設定します
 (setq network-lookup-address-preference 'ipv4)
 
@@ -17,7 +17,7 @@
 (setq user-emacs-directory
       (file-name-directory (or load-file-name buffer-file-name)))
 
-;; 🌟 ポータブル環境用：.authinfo をホームディレクトリではなく .emacs.d の中に配置する設定
+;; ポータブル環境用：.authinfo をホームディレクトリではなく .emacs.d の中に配置する設定
 (setq auth-sources
       (list (expand-file-name ".authinfo" user-emacs-directory)
             (expand-file-name ".authinfo.gpg" user-emacs-directory)))
@@ -33,7 +33,7 @@
 (setq custom-safe-themes t)
 (advice-add 'custom-theme-load-confirm :override (lambda (&rest _) t))
 
-;; 🌟 終了時の固まり対策（共通ローカルキャッシュ ＋ USBへの非同期同期）
+;; 終了時の固まり対策（共通ローカルキャッシュ ＋ USBへの非同期同期）
 ;; user-emacs-directory は USB 等のポータブル/ネットワークドライブ上にある
 ;; ことがあり、そこへ終了時に直接・同期的に書き込むと、応答の遅いドライブで
 ;; 固まる原因になります。
@@ -42,11 +42,11 @@
 ;;    終了はここでは絶対に固まらない）、
 ;; ② その後、書き込んだ内容を非同期のバックグラウンドプロセスで USB 側にも
 ;;    コピーする（完了を待たないので、これも Emacs の終了をブロックしない）
-;; という2段構成にすることで、「USB側にもデータが残ってほしい」という要望と
-;; 「終了時に固まってほしくない」という要件を両立させます。
+;; という2段構成にすることで、USB側へのデータ永続化と
+;; 終了時のブロッキング防止を両立させています。
 ;; （USBが低速・未接続でもコピーが失敗するだけで、Emacs自体は影響を受けません）
 ;;
-;; 🌟 新規フォルダは作らない方針
+;; 新規ディレクトリは作成せず既存の一時フォルダを利用
 ;; %LOCALAPPDATA%\emacs\ のような専用フォルダを新設せず、Windowsに元々ある
 ;; 一時ディレクトリ（temporary-file-directory、通常は %TEMP%）を直接使う。
 ;; ファイル名には "emacs-portable-" というプレフィックスを付け、
@@ -124,6 +124,29 @@ USB側に残っている前回の状態を引き継ぐためのものです。"
 (set-keyboard-coding-system 'utf-8)
 (set-selection-coding-system 'utf-16le-dos)
 
+;; --- 新規ファイル作成時の文字コード・改行コード自動設定 ---
+;; .bat/.cmd と .ps1 のみ、新規作成時に Windows 互換の文字コード・CRLF を自動割り当て
+(defun my/custom-new-file-coding-system ()
+  "新規ファイル作成時、.bat/.cmd や .ps1 に適切な文字コード・改行コードを割り当てます。"
+  (when buffer-file-name
+    (cond
+     ;; バッチファイル (.bat, .cmd) → CP932 / CRLF
+     ((string-match-p "\\.\\(bat\\|cmd\\)\\'" buffer-file-name)
+      (setq buffer-file-coding-system 'japanese-cp932-dos))
+     ;; PowerShell スクリプト (.ps1) → UTF-8 BOM付き / CRLF
+     ((string-match-p "\\.ps1\\'" buffer-file-name)
+      (setq buffer-file-coding-system 'utf-8-with-signature-dos))))
+  nil) ; 他のフック処理を阻害しないよう必ず nil を返す
+
+(add-hook 'find-file-not-found-functions #'my/custom-new-file-coding-system)
+
+;; -nw (端末版) 起動時に Windows 本体の IME を確実に OFF (英数直接入力) で開始する
+(when (and (eq system-type 'windows-nt) (not (display-graphic-p)))
+  (add-hook 'emacs-startup-hook
+            (lambda ()
+              (when (fboundp 'w32-set-ime-open-status)
+                (ignore-errors (w32-set-ime-open-status nil))))))
+
 ;; 「yes/no」を「y/n」の1文字で済ます（Emacs 28+ の正式な書き方）
 (setq use-short-answers t)
 
@@ -138,7 +161,7 @@ USB側に残っている前回の状態を引き継ぐためのものです。"
 
 ;; ロックファイル（.#filename）を作らない
 ;; make-backup-files と同じ思想。USB/ネットワークドライブ上に余計な
-;; ファイルを残したくない今回の方針にも合う。
+;; 一時ファイル（ロックファイル）を残さないための設定。
 (setq create-lockfiles nil)
 
 ;; Dired等でファイルを削除する際、完全削除ではなくWindowsのごみ箱に送る
@@ -146,12 +169,12 @@ USB側に残っている前回の状態を引き継ぐためのものです。"
 (setq delete-by-moving-to-trash t)
 
 ;; サブプロセスからの読み込みバッファを増やし、応答をもたつかせない
-;; （gptel / ripgrep・fd 経由の検索 / conpty / Antigravity CLI など、
+;; （ripgrep・fd 経由の検索 / conpty / Antigravity CLI など、
 ;;   外部プロセスとのやり取りが多い構成のため）
 (setq read-process-output-max (* 1024 1024)) ; 1MB
 
 ;; 実行中の外部プロセスがあっても、終了時に確認ダイアログを出さない
-;; （gptel / conpty / GhostText連携 / xdoc2txt など外部プロセスを多用するため、
+;; （conpty / GhostText連携 / xdoc2txt など外部プロセスを多用するため、
 ;;   確認待ちで終了処理が止まっているのを「固まった」と誤認しやすい）
 (setq confirm-kill-processes nil)
 
@@ -183,9 +206,43 @@ USB側に残っている前回の状態を引き継ぐためのものです。"
 ;; コメントやdescribe-function等の表示で使われる引用符をストレートクォートに統一する
 (setq text-quoting-style 'straight)
 
-;; 現代的なアプリのような滑らかなスクロール (Emacs 29+)
+;; Windows環境でのキー長押しスクロール遅延・コマ落ちを防ぐため無効化
 (when (fboundp 'pixel-scroll-precision-mode)
-  (pixel-scroll-precision-mode 1))
+  (pixel-scroll-precision-mode -1))
+
+;; --- 外部でのファイル変更検知 ＆ スマート確認設定 ---
+(defvar-local my/auto-revert-declined-modtime nil
+  "ユーザーが再読み込みを拒否した時点のファイル更新日時。
+次回外部でファイルが再度変更されるまで、同一の変更に対する確認を抑制します。")
+
+(defun my/auto-revert-handler-around (orig-fun &rest args)
+  "外部変更検知時に確認プロンプトを出し、拒否されたら次の変更までスキップする。"
+  (if (and buffer-file-name
+           (file-exists-p buffer-file-name)
+           (not (verify-visited-file-modtime (current-buffer))))
+      (let ((cur-modtime (file-attribute-modification-time (file-attributes buffer-file-name))))
+        (cond
+         ;; すでに拒否したタイムスタンプと同じなら、次の変更まで沈黙
+         ((and my/auto-revert-declined-modtime
+               (equal cur-modtime my/auto-revert-declined-modtime))
+          nil)
+         ;; ミニバッファ入力中はユーザーの邪魔をしない
+         ((minibuffer-window-active-p (selected-window))
+          nil)
+         ;; それ以外ならユーザーに確認
+         (t
+          (if (y-or-n-p (format "ファイル「%s」が外部で変更されました。再読み込みしますか？ "
+                                (file-name-nondirectory buffer-file-name)))
+              (progn
+                (setq my/auto-revert-declined-modtime nil)
+                (apply orig-fun args))
+            ;; 「no」を選んだ場合：タイムスタンプを記憶して次回以降沈黙
+            (setq my/auto-revert-declined-modtime cur-modtime)
+            (message "再読み込みをスキップしました (F5 で手動更新可能)")))))
+    ;; 変更がないか通常処理
+    (apply orig-fun args)))
+
+(advice-add 'auto-revert-handler :around #'my/auto-revert-handler-around)
 
 ;; 外部でのファイル変更を自動検知して反映
 (global-auto-revert-mode 1)
@@ -207,7 +264,7 @@ USB側に残っている前回の状態を引き継ぐためのものです。"
   :ensure nil
   :config
   ;; ============================================================
-  ;; 🌟 終了時の固まり対策（強化版）
+  ;; 終了時の固まり対策（拡張）
   ;; with-timeout はファイルI/Oブロック中に機能しないため、
   ;; 保存先を確実にローカルな AppData に変更して固まりを防ぐ。
   ;; ポータブル版が USB/ネットワーク上にあっても問題なくなる。
@@ -337,7 +394,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
 ;; *scratch* バッファの内容を終了時に保存し、起動時に復元する
 (use-package persistent-scratch
   :config
-  ;; 🌟 デフォルトの保存先は user-emacs-directory 配下（＝ポータブルドライブ上）
+  ;; デフォルトの保存先は user-emacs-directory 配下（＝ポータブルドライブ上）
   ;; になるため、終了時の固まり対策としてまずローカルキャッシュに変更する。
   (setq persistent-scratch-save-file
         (my/local-cache-file "persistent-scratch"))
@@ -427,6 +484,17 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
   ;; フッターの非表示 (ロゴ下部分にバージョンを表示したため非表示)
   (setq dashboard-show-footer nil)
   
+  ;; クイックスタート環境でも正しくパッケージ数をカウントして表示
+  (setq dashboard-init-info
+        (lambda ()
+          (let ((pkg-count (or (when (bound-and-true-p package-activated-list)
+                                 (length package-activated-list))
+                               (when (bound-and-true-p package-selected-packages)
+                                 (length package-selected-packages))
+                               0))
+                (init-time (dashboard-init--time)))
+            (format "[%d packages loaded in %s]" pkg-count init-time))))
+
   (setq dashboard-show-shortcuts t)
   (setq dashboard-set-navigator t))
 
@@ -435,7 +503,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
 ;; 3. 外観（テーマ・フォント・UI）
 ;; =====================================================================
 
-;; 🌟 Iceberg テーマ（conao3/iceberg-theme.el）
+;; Iceberg テーマ（conao3/iceberg-theme.el）
 ;; パッケージのインストールとテーマファイルの作成のみ行い、自動適用はしません。
 (use-package iceberg-theme
   :ensure t
@@ -446,7 +514,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
 (setq default-frame-alist (assq-delete-all 'tab-bar-lines default-frame-alist))
 
 ;; ★フォントポータブル仕様：.emacs.d/fonts/ のフォントを起動時に一時登録して最優先適用
-;; 🌟 使いたいフォントファイル名はここで変更してください
+;; 使いたいフォントファイル名はここで変更してください
 (condition-case nil
     (let* ((my-fonts-dir   (expand-file-name "fonts/" user-emacs-directory))
            (my-font-file   "Utatane-Regular.ttf")
@@ -499,7 +567,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
     (popup-menu menu event)))
 
 ;; ツールバーを Adwaita アイコンで全面置き換え
-;; 🌟 アイコン画像の場所：~/.emacs.d/images/ に tb-*.png を配置してください
+;; アイコン画像の場所：~/.emacs.d/images/ に tb-*.png を配置してください
 ;;    （adwaita-icons.zip の中身をそのままコピー）
 
 (defun my/tb-image (name)
@@ -628,7 +696,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
           "\\.recentf$"))                   ; recentf ファイル自体を除外
 
   ;; ============================================================
-  ;; 🌟 ファイル生存確認（existence check）の ON/OFF スイッチ
+  ;; ファイル生存確認（existence check）の ON/OFF スイッチ
   ;;   nil → 確認しない（起動・動作が速い。ネットワークドライブ多用時に推奨）
   ;;   t   → 確認する  （消えたファイルが履歴から自動で消える）
   ;; ============================================================
@@ -646,7 +714,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
   (setq recentf-auto-save-timer nil)
 
   ;; ============================================================
-  ;; 🌟 終了時の固まり対策
+  ;; 終了時の固まり対策
   ;; recentf-save-file のデフォルトは user-emacs-directory 配下
   ;; （＝USB等のポータブルドライブ上）になるため、まずローカルキャッシュに
   ;; 保存先を変更する（with-timeout は同期I/Oのブロック中には効かないため、
@@ -671,13 +739,14 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
   (remove-hook 'kill-emacs-hook #'recentf-save-list)
   (add-hook    'kill-emacs-hook #'my/recentf-save-safe)
 
-  (recentf-mode 1))
+  (let ((inhibit-message t))
+    (recentf-mode 1)))
 
 ;; recentf の代用：ミニバッファ履歴保存機能（savehist）
 (use-package savehist
   :ensure nil
   :init
-  ;; 🌟 user-emacs-directory（ポータブルドライブ上）への直接書き込みは
+  ;; user-emacs-directory（ポータブルドライブ上）への直接書き込みは
   ;; 終了時に固まる原因になるため、まずローカルキャッシュに保存先を変更する。
   (setq savehist-file (my/local-cache-file "savehist"))
   (defvar my/savehist-usb-file
@@ -724,12 +793,16 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
 ;; 単語で折り返し
 (global-visual-line-mode 1)
 
-;; スクロール設定
-(setq scroll-conservatively 1)
+;; スクロール設定（高速・スムーズ化チューニング）
+(setq scroll-conservatively 101)        ; 再中央揃えの再計算を抑制
+(setq scroll-margin 0)                  ; 画面端に達するまで無駄な再描画を抑制
+(setq scroll-step 1)                    ; 1行ずつ追従
+(setq scroll-preserve-screen-position t); 画面位置を維持
+(setq auto-window-vscroll nil)           ; 縦スクロール時の可変高計算をスキップ
 (setq mouse-wheel-progressive-speed nil)
 (setq mouse-wheel-follow-mouse t)
-(setq scroll-preserve-screen-position t)
-(setq scroll-margin 5)
+
+(require 'view)
 
 ;; 行番号を常時表示（最低3桁幅で固定）
 (global-display-line-numbers-mode 1)
@@ -740,11 +813,11 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
 (require 'whitespace)
 (require 'color)
 
-;; 🌟 point1: space-mark を有効にしつつ、styleから「spaces（半角）」を除外。
+;; point1: space-mark を有効にしつつ、styleから「spaces（半角）」を除外。
 ;; これにより「全角スペース」と「TAB」だけがwhitespaceの管理対象になります。
 (setq whitespace-style '(face tabs tab-mark spaces space-mark trailing))
 
-;; 🌟 point2: 可視化する文字のマッピング
+;; point2: 可視化する文字のマッピング
 ;; 半角スペースはマッピング自体を空にして完全に非表示（透明）にします。
 (setq whitespace-display-mappings
       '((space-mark ?\u3000 [?\u25a1] [?_ ?_])       ;; 全角スペース → 「□」
@@ -752,7 +825,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
 
 (global-whitespace-mode 1)
 
-;; 🌟 point3: whitespaceの見た目をテーマの色から動的に生成する
+;; point3: whitespaceの見た目をテーマの色から動的に生成する
 ;; whitespace.el のデフォルトフェイスは "grey20" 等の固定背景色を
 ;; 敷く仕様になっており、iceberg のような青みがかった背景から浮いて
 ;; 目立ちすぎてしまいます。そこで背景ボックスをやめ、テーマの背景色から
@@ -788,7 +861,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
 (my/update-whitespace-faces)
 (add-hook 'enable-theme-functions #'my/update-whitespace-faces)
 
-;; 🌟 サクラエディタ風の正規表現キーワード強調表示（テキスト・Markdown用）
+;; サクラエディタ風の正規表現キーワード強調表示（テキスト・Markdown用）
 ;; 各種括弧や引用符（「」『』()（）[]［］【】《》<>〈〉"" '' など）や丸数字①-⑳を色分けします。
 (defconst my/text-highlight-keywords
   '(("「[^」]*」" . font-lock-string-face)
@@ -811,7 +884,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
 
 
 ;; =====================================================================
-;; 5. モードライン（情報行）のカスタマイズ（ご指定レイアウト ＆ パスホバー版）
+;; 5. モードライン（情報行）のカスタマイズ（カスタムレイアウト ＆ パスホバー版）
 ;; =====================================================================
 
 (line-number-mode 1)
@@ -863,7 +936,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
       (propertize " [narrow] " 'face '(:foreground "Orange" :weight bold))
     ""))
 
-;; 🌟 ホバーでフルパスが表示されるファイル名
+;; ホバーでフルパスが表示されるファイル名
 (defun my-modeline-buffer-name-with-path-help ()
   "マウスホバー時にフルパスをポップアップ表示するバッファ名を返します。"
   (let ((full-path (or buffer-file-name (buffer-name))))
@@ -878,13 +951,13 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
 (setq display-time-mail-string "")
 (display-time-mode 1)
 
-;; 🌟 レイアウトをご指定の並び順に完全固定
+;; モードラインの表示項目と並び順の設定
 (setq-default mode-line-format
   (list
    '(:eval (my-modeline-modification-status))        ; 1. [*]
    '(:eval (my-modeline-buffer-name-with-path-help)) ; 2. ノート.md（ホバーでフルパス）
    '(:eval (my-modeline-major-mode))                 ; 3. (markdown)
-   '(:eval (my-modeline-narrow-status))              ; 🌟 [narrow] (ナローイング中のみ表示)
+   '(:eval (my-modeline-narrow-status))              ; [narrow] (ナローイング中のみ表示)
    '(:eval (my-modeline-coding-system))              ; 4. [U8]
    " "
    "行:%l/列:%c"                                     ; 5. 行:1/列:1
@@ -899,13 +972,13 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
    '(:propertize display-time-string face bold)
    " "))
 
-;; 🌟 不要なサイドバー・ツリー等のウィンドウでモードラインを非表示にする
+;; 不要なサイドバー・ツリー等のウィンドウでモードラインを非表示にする
 (use-package hide-mode-line
   :ensure t
   :hook
   ((neotree-mode imenu-list-major-mode minimap-mode) . hide-mode-line-mode))
 
-;; 🌟 タイトルバーのカスタマイズ（ドライブ名大文字化 ＆ パソコン名自動取得版）
+;; タイトルバーのカスタマイズ（ドライブ名大文字化 ＆ パソコン名自動取得版）
 (setq frame-title-format
       (list
        ;; 1. (フルパス) の先頭（ドライブ名）を大文字にして表示
@@ -988,7 +1061,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
           (message "外部プログラムで開きました: %s" (file-name-nondirectory file)))
       (message "有効なファイルではありません: %s" file))))
 
-;; 🌟 デフォルトの m3u8/m3u プレイリストファイルパスをここで設定してください
+;; デフォルトの m3u8/m3u プレイリストファイルパスをここで設定してください
 ;; 例: "c:/Music/mylist.m3u8"
 ;; nil にすると毎回ファイル選択ダイアログが開きます
 (defvar my/m3u8-default-playlist
@@ -1055,12 +1128,7 @@ Windows バックスラッシュパスは自動でスラッシュに変換する
 (defun my/m3u8-search-and-play ()
   "m3u/m3u8 プレイリストの曲を検索して外部プレイヤーで再生する。
 固定パスは my/m3u8-default-playlist で設定。
-C-u 付きで実行するとダイアログでファイルを選び直せる。
-
-複数曲を選びたい場合: 曲名を入力 → TAB で確定 → `,` を入力すると
-次の曲を選べる状態になる。これを繰り返し、最後に RET で確定すると
-選んだ曲がすべて再生される。
-1曲だけ再生する場合は、TAB で確定後に `,` を入力せず RET でよい。"
+C-u 付きで実行するとダイアログでファイルを選び直せます。"
   (interactive)
   (let* ((playlist
           (if (and my/m3u8-default-playlist
@@ -1081,26 +1149,22 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
         (message "曲が見つかりませんでした: %s" playlist)
       (let* ((candidates
               (my/m3u8-candidates entries))
-             (chosen-list
+             (chosen
               (let ((orderless-matching-styles
                      '(orderless-literal orderless-regexp orderless-migemo)))
-                (completing-read-multiple
-                 (format "[%s] 曲を選択、複数はカンマ区切り (%d 曲): "
+                (completing-read
+                 (format "[%s] 曲を選択 (%d 曲): "
                          (file-name-nondirectory playlist)
                          (length entries))
                  candidates nil t)))
-             (paths (delq nil
-                          (mapcar (lambda (c)
-                                    (alist-get c candidates nil nil #'string=))
-                                  chosen-list))))
-        (if (null paths)
+             (fpath (alist-get chosen candidates nil nil #'string=)))
+        (if (not fpath)
             (message "曲が選択されませんでした。")
-          (dolist (fpath paths)
-            (if (file-exists-p fpath)
-                (progn
-                  (w32-shell-execute "open" (subst-char-in-string ?/ ?\\ fpath))
-                  (message "再生: %s" (file-name-nondirectory fpath)))
-              (message "ファイルが存在しません: %s" fpath))))))))
+          (if (file-exists-p fpath)
+              (progn
+                (w32-shell-execute "open" (subst-char-in-string ?/ ?\\ fpath))
+                (message "再生: %s" (file-name-nondirectory fpath)))
+            (message "ファイルが存在しません: %s" fpath)))))))
 
 (defalias 'mp3-search #'my/m3u8-search-and-play)
 (defalias 'mp3-play #'my/m3u8-search-and-play)
@@ -1112,7 +1176,7 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
   (define-key centaur-tabs-mode-map
     [header-line double-mouse-1] 'my-open-current-file-in-windows)
   ;; ---------------------------------------------------------------
-  ;; 🌟 タブ左クリック・中クリックの挙動修正
+  ;; タブ左クリック・中クリックの挙動修正
   ;; タブ本体は centaur-tabs-default-map を使用。
   ;; mouse-1 → 選択（明示固定）
   ;; mouse-2 → ignore（nil だと "undefined" エラーになる）
@@ -1250,6 +1314,16 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
 (global-set-key (kbd "C-a") 'my/select-all-toggle)
 (global-set-key (kbd "C-o") 'menu-find-file-existing) ; Windows ネイティブダイアログで開く
 (global-set-key (kbd "C-w") 'kill-current-buffer)
+;; Ctrl+Q / Alt+F4 で確認付き Emacs 終了（Antigravity CLI / ターミナルへ安全に戻る）
+(defun my/confirm-kill-emacs ()
+  "Emacsを終了するか確認してから終了する。"
+  (interactive)
+  (when (y-or-n-p "Emacs を終了しますか？ ")
+    (save-buffers-kill-terminal)))
+
+(global-set-key (kbd "C-q") #'my/confirm-kill-emacs)        ; Ctrl+Q で確認付き終了 (MS-Edit風)
+(global-set-key (kbd "M-<f4>") #'my/confirm-kill-emacs)     ; Alt+F4 で確認付き終了
+(global-set-key (kbd "C-x C-c") #'my/confirm-kill-emacs)    ; C-x C-c で確認付き終了
 
 ;; C-e に行頭（インデント先頭）・行末のスマートトグルを割り当て
 (defun my/toggle-beginning-end-of-line-smart ()
@@ -1290,23 +1364,85 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
 
 ;; F キー系
 (global-set-key [f4]         'speedbar-get-focus) ;; F4 でスピードバー
-;; F5: howm 環境 ON/OFF トグル
+;; F5: 現在のバッファをディスクから再読み込み（更新確認）
+(defun my/revert-buffer-with-confirm ()
+  "現在のバッファをディスクから再読み込み（更新）するか確認して実行します。"
+  (interactive)
+  (if (not buffer-file-name)
+      (message "このバッファには関連付けられたファイルがありません")
+    (if (not (file-exists-p buffer-file-name))
+        (message "ファイルが存在しません: %s" buffer-file-name)
+      (let* ((stale (not (verify-visited-file-modtime (current-buffer))))
+             (prompt (if (buffer-modified-p)
+                         (format "バッファ「%s」は未保存の変更があります。破棄してディスクから再読み込みしますか？ "
+                                 (buffer-name))
+                       (if stale
+                           (format "ファイル「%s」は外部で変更されています。再読み込みしますか？ "
+                                   (buffer-name))
+                         (format "バッファ「%s」をディスクから再読み込みしますか？ "
+                                 (buffer-name))))))
+        (if (y-or-n-p prompt)
+            (progn
+              (revert-buffer t t t)
+              (setq-local my/auto-revert-declined-modtime nil)
+              (message "バッファ「%s」を再読み込みしました" (buffer-name)))
+          (message "再読み込みをキャンセルしました"))))))
+
+(global-set-key [f5] #'my/revert-buffer-with-confirm) ;; F5 で更新（確認付き）
+
+;; F7: howm 環境 ON/OFF トグル
 ;; 　howm バッファが存在する → howm-kill-all で全消去（OFF）
 ;; 　howm バッファがない     → howm-menu を開く（ON）
 (defun my/howm-toggle ()
-  "howm 関連バッファが存在すれば howm-kill-all で全消去。なければ howm-menu を開く。"
+  "howm 関連バッファが存在すればすべて消去・ウィンドウを閉じる。なければ howm-menu を開く。"
   (interactive)
   (if (cl-some (lambda (buf)
-                 (string-match-p "\\*howm" (buffer-name buf)))
+                 (with-current-buffer buf
+                   (or (memq major-mode '(howm-menu-mode
+                                          howm-view-summary-mode
+                                          howm-view-contents-mode
+                                          howm-mode))
+                       (string-match-p "\\`\\*howm[MCS]" (buffer-name buf)))))
                (buffer-list))
       (progn
-        (howm-kill-all)
-        ;; *Ilist* は howm-kill-all の対象外なので別途閉じる
-        (when-let* ((ilist-win (get-buffer-window "*Ilist*")))
-          (delete-window ilist-win))
-        (message nil))  ; 🌟 ミニバッファのメッセージ（プロンプト）をクリア
+        (dolist (buf (buffer-list))
+          (let ((name (buffer-name buf)))
+            (when (or (string-match-p "\\`\\*howm[MCS]" name)
+                      (string-match-p "\\`\\*Ilist\\*" name)
+                      (with-current-buffer buf
+                        (memq major-mode '(howm-menu-mode
+                                           howm-view-summary-mode
+                                           howm-view-contents-mode
+                                           howm-mode))))
+              (when-let* ((win (get-buffer-window buf)))
+                (unless (one-window-p t)
+                  (delete-window win)))
+              (kill-buffer buf))))
+        (message "howm をすべて閉じました"))
     (howm-menu)))
-(global-set-key [f5] 'my/howm-toggle) ;; F5 で howm 環境トグル
+;; F7: howm 環境 ON/OFF トグル
+(global-set-key [f7] #'my/howm-toggle)
+(global-set-key (kbd "<f7>") #'my/howm-toggle)
+
+;; Shift+F7: howm メモフォルダ内を consult-ripgrep で全文検索
+(defun my/howm-ripgrep (&optional initial)
+  "howm メモフォルダ (howm-directory) 内を consult-ripgrep で全文検索します。
+選択範囲があればそれを初期入力値にします。"
+  (interactive
+   (list (when (use-region-p)
+           (buffer-substring-no-properties (region-beginning) (region-end)))))
+  (consult-ripgrep howm-directory initial))
+(global-set-key [S-f7] #'my/howm-ripgrep)       ;; Shift+F7 で howm メモ全文検索
+(global-set-key (kbd "<S-f7>") #'my/howm-ripgrep)
+
+;; F8: カレンダー (calfw)
+(global-set-key [f8] #'my/open-calendar)
+(global-set-key (kbd "<f8>") #'my/open-calendar)
+
+;; Shift+F8: 週間天気予報 (weather)
+(global-set-key [S-f8] #'my/weather)
+(global-set-key (kbd "<S-f8>") #'my/weather)
+
 (global-set-key (kbd "<menu>") 'context-menu-open) ;; Menu キーで右クリック
 
 ;; F3: 検索開始 / 次を検索（兼用、前方）
@@ -1386,7 +1522,7 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
       (setq conpty-program (expand-file-name "bin/emacs-conpty.exe"
                                              (expand-file-name ".." user-emacs-directory))))))
 
-;; 🌟 ドラッグ＆ドロップでファイルを開く挙動を強制的に有効化
+;; ドラッグ＆ドロップでファイルを開く挙動を強制的に有効化
 (setq dnd-protocol-alist
       '(("^file:///" . dnd-open-local-file)
         ("^file://"  . dnd-open-local-file)
@@ -1547,7 +1683,7 @@ C-u 付きで実行するとダイアログでファイルを選び直せる。
   ;; Elisp のコードブロック内での補完
   (add-to-list 'completion-at-point-functions #'cape-elisp-block))
 
-;; 🌟 ispell の辞書が存在しないため ispell-completion-at-point を無効化する
+;; ispell の辞書が存在しないため ispell-completion-at-point を無効化する
 ;; （Corfu が毎回 "No plain word-list found" エラーを出すのを防ぐ）
 (with-eval-after-load 'ispell
   ;; ポータブル環境に辞書がないため、ispell 補完を完全に無効化
@@ -1974,42 +2110,74 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   ("b" hydra-launcher/body :color blue)
   ("q" nil :color blue))
 
+;; プロジェクト操作 サブメニュー（hydra-launcher より先に定義する）
+(defhydra hydra-project (:color blue :hint nil)
+  "
+  === PROJECT NAVIGATOR (M-o p / C-c C-p) ===
+  [検索・移動]                                      [プロジェクト操作]
+  [f] ファイル検索 (consult-fd)                     [p] 別プロジェクト切替 (project-switch-project)
+  [s] 全文検索 (consult-ripgrep)                    [d] ルートフォルダ (project-dired)
+  [g] ローマ字ファイル検索 (consult-fd-migemo)      [b] バッファ切替 (project-switch-to-buffer)
+  [z] Zoxide移動 (zoxide-find-file)                 [k] 全バッファ閉じる (project-kill-buffers)
+  [e] Everything (consult-locate)                   [r] 最近使ったファイル (consult-recent-file)
+  ------------------------------------------------------------------------------------------
+  💡【裏技】フォルダ内に空の「.project」を置くだけで Git不要でルート認識されます！
+  ------------------------------------------------------------------------------------------
+  [m] メインランチャーに戻る (hydra-launcher)       [q] 閉じる
+"
+  ("f" my/consult-fd-project)
+  ("s" my/consult-ripgrep-project)
+  ("g" my/consult-fd-migemo)
+  ("z" zoxide-find-file)
+  ("e" consult-locate)
+  ("p" project-switch-project)
+  ("d" project-dired)
+  ("b" project-switch-to-buffer)
+  ("r" consult-recent-file)
+  ("k" project-kill-buffers)
+  ("m" hydra-launcher/body :color blue)
+  ("q" nil :color blue))
+
 ;; メインランチャーメニュー
 (defhydra hydra-launcher (:color blue :hint nil)
   "
   === EMACS NAVIGATOR (M-o) ===
-  [e] Everything (PC内検索)      [m] Markdown メニュー
-  [s] プロジェクト内検索 (rg)    [o] Obsidian メニュー
-  [g] ファイル名検索 (fd)        [w] ウィンドウ操作
-  [f] 最近使ったファイル         [F] ファイル操作
-  [r] ローマ字検索 (Migemo)      [M] カラーマーカー
-  [l] 単語検索ポップアップ       [L] カレンダー (calfw)
-  [n] 新しいウィンドウ (Frame)   [P] EPUBリーダー (nov)
-  [z] Zoxide でファイルを開く    [d] 辞書 (Lookup)
-  [O] moccur (一括編集)
-  ---------------------------------------------------------
-  [c] cmd.exe (conpty)           [p] PowerShell (conpty)
-  [C] 電卓メニュー (Calc)        [T] テキスト変換
-  [?] Meow 操作ガイド            [q] 閉じる
+  [検索・移動]                                      [各種メニュー・ツール]
+  [e] Everything (consult-locate)                   [p] プロジェクトメニュー (hydra-project)
+  [s] プロジェクト内検索 (consult-ripgrep)          [m] Markdown メニュー (hydra-markdown)
+  [g] プロジェクトファイル検索 (consult-fd)         [o] Obsidian メニュー (hydra-obsidian)
+  [f] 最近使ったファイル (consult-recent-file)      [w] ウィンドウ操作 (hydra-window)
+  [r] ローマ字検索 (consult-line-migemo)            [F] ファイル操作 (hydra-file)
+  [b] ブックマーク (consult-bookmark)               [M] カラーマーカー (hydra-marker)
+  [O] 一括編集 (moccur)                             [L] カレンダー (my/open-calendar)
+  [n] 新しいウィンドウ (make-frame)                 [d] 辞書 (lookup)
+  ------------------------------------------------------------------------------------------
+  [c] cmd.exe (conpty)                              [P] PowerShell (conpty-powershell)
+  [E] EPUBリーダー (nov.el)                         [C] 電卓メニュー (calc)
+  [T] テキスト変換 (hydra-text)                     [W] 週間天気予報 (my/weather)
+  [H] howmメモ (my/howm-toggle)                     [?] Meow 操作ガイド
+  [q] 閉じる
 "
   ("e" consult-locate)
   ("s" my/consult-ripgrep-project)
   ("g" my/consult-fd-project)
   ("G" my/consult-fd-here)
+  ("p" hydra-project/body)
   ("f" consult-recent-file)
+  ("b" consult-bookmark)
   ("r" my/consult-line-migemo)
-  ("l" my/consult-line-symbol-at-point)
   ("n" make-frame)
-  ("P" my/nov-open-epub)
-  ("z" zoxide-find-file)
+  ("E" my/nov-open-epub)
   ("m" hydra-markdown/body)
   ("o" hydra-obsidian/body)
   ("w" hydra-window/body)
   ("F" hydra-file/body)
   ("M" hydra-marker/body)
   ("c" conpty)
-  ("p" conpty-powershell)
+  ("P" conpty-powershell)
   ("L" my/open-calendar)
+  ("W" my/weather)
+  ("H" my/howm-toggle)
   ("C" hydra-calc/body)
   ("T" hydra-text/body)
   ("d" lookup)
@@ -2022,21 +2190,23 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   (let ((menu-map (make-sparse-keymap "Navigator")))
     ;; Navigator メニュー内の項目
     (define-key menu-map [hydra-everything] '(menu-item "Everything PC内検索" consult-locate :keys "M-o e"))
+    (define-key menu-map [hydra-project]    '(menu-item "プロジェクトメニュー" hydra-project/body :keys "M-o p / C-c C-p"))
     (define-key menu-map [hydra-fd-project] '(menu-item "ファイル名検索 fd" my/consult-fd-project :keys "M-o g"))
     (define-key menu-map [hydra-fd-here]    '(menu-item "ファイル名検索 fd ここから" my/consult-fd-here :keys "M-o G"))
     (define-key menu-map [separator-1]      '(menu-item "--"))
-    (define-key menu-map [hydra-epub]       '(menu-item "EPUB リーダー" my/nov-open-epub :keys "M-o P"))
+    (define-key menu-map [hydra-epub]       '(menu-item "EPUB リーダー" my/nov-open-epub :keys "M-o E"))
     (define-key menu-map [hydra-new-frame]  '(menu-item "新しいウィンドウを開く" make-frame :keys "M-o n"))
     (define-key menu-map [separator-2]      '(menu-item "--"))
     (define-key menu-map [hydra-meow-guide] '(menu-item "Meow 操作ガイド" (lambda () (interactive) (if (fboundp 'hydra-meow-help/body) (hydra-meow-help/body) (message "Meow は未ロードです"))) :keys "M-o ?"))
     (define-key menu-map [hydra-marker]     '(menu-item "カラーマーカー" hydra-marker/body :keys "M-o M"))
     (define-key menu-map [hydra-calc]       '(menu-item "電卓" hydra-calc/body :keys "M-o C"))
     (define-key menu-map [hydra-calendar]   '(menu-item "カレンダー" my/open-calendar :keys "M-o L"))
+    (define-key menu-map [hydra-howm]       '(menu-item "howm メモ環境 (ON/OFF)" my/howm-toggle :keys "F8 / M-o H"))
     (define-key menu-map [hydra-file]       '(menu-item "ファイル操作" hydra-file/body :keys "M-o F"))
     (define-key menu-map [hydra-window]     '(menu-item "ウィンドウ操作" hydra-window/body :keys "M-o w"))
     (define-key menu-map [separator-2b]     '(menu-item "--"))
     (define-key menu-map [hydra-conpty-cmd] '(menu-item "cmd.exe (conpty)" conpty :keys "M-o c"))
-    (define-key menu-map [hydra-conpty-ps]  '(menu-item "PowerShell (conpty)" conpty-powershell :keys "M-o p"))
+    (define-key menu-map [hydra-conpty-ps]  '(menu-item "PowerShell (conpty)" conpty-powershell :keys "M-o P"))
     (define-key menu-map [separator-3]      '(menu-item "--"))
     (define-key menu-map [hydra-obsidian]   '(menu-item "Obsidian メニュー" hydra-obsidian/body :keys "M-o o"))
     (define-key menu-map [hydra-markdown]   '(menu-item "Markdown メニュー" hydra-markdown/body :keys "M-o m"))
@@ -2059,13 +2229,15 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
          ("C-S-h" . my/consult-fd-here)
          ("C-c e" . consult-locate)
          ("<f2>"  . consult-buffer)
-         ("<f6>"  . my/open-calendar)
+         ("<f8>"  . my/open-calendar)
+         ("C-x r b" . consult-bookmark)
          ("M-o"   . hydra-launcher/body))
   :config
   ;; my/cua-cut-or-prefix 経由では ctl-x-map が正しく引けるが、
   ;; 念のため直接バインドして確実に動作させる
   (define-key ctl-x-map "b" #'consult-buffer)
   (define-key ctl-x-map "k" #'kill-buffer)
+  (define-key ctl-x-r-map "b" #'consult-bookmark)
 
   (setq consult-async-split-style 'perl) ; # 区切りで AND 検索（例: -F ミネルヴィニ#株）
   (setq consult-ripgrep-args
@@ -2294,7 +2466,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
                                       (expand-file-name "Everything/es.exe" (or (getenv "ProgramFiles(x86)") "C:/Program Files (x86)"))
                                       "C:/tools/Everything/es.exe")))))
     (if es-exe
-        (setq consult-locate-args (concat (shell-quote-argument es-exe) " -i -p -r"))
+        (setq consult-locate-args (list (replace-regexp-in-string "\\\\" "/" es-exe) "-i" "-p" "-r"))
       (message "【お知らせ】es.exe が見つかりません。Everything をインストールするか portable/bin/ に置いてください。"))))
 
 
@@ -2484,12 +2656,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
 
   (advice-add 'project-files :override #'my/project-files))
 
-;; --- fd-dired (fd を使った Dired 検索) ---
-(use-package fd-dired
-  :ensure t
-  :config
-  ;; Windows環境に合わせた引数の最適化
-  (setq fd-dired-pre-args "--color=never --hidden --follow --exclude .git"))
+
 
 ;; modus-themes（gnome2テーマ等の依存対策）
 (use-package modus-themes)
@@ -2588,7 +2755,6 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
 ;; =====================================================================
 
 (use-package multiple-cursors
-  :config
   ;; CUA モードの C-z（矩形選択開始）と競合しないよう mc 操作は C-c m プレフィックスに集約
   ;; よく使う操作だけ単キーにも割り当て
   ;;   C->        … 次の同じ単語にカーソル追加
@@ -2641,9 +2807,19 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   :commands imenu-list-smart-toggle
   :config
   (setq imenu-list-position 'right)   ; 右端に表示
-  (setq imenu-list-size     0.20)     ; 画面幅の 20%
+  (setq imenu-list-size     0.25)     ; 画面幅の最大 25% (1/4)
   (setq imenu-list-focus-after-activation nil) ; 開いてもエディタ側にフォーカスを残す
   (setq imenu-list-auto-resize t)     ; 項目数に合わせて自動リサイズ
+
+  ;; 自動リサイズ時も横幅が画面の 1/4 (25%) を超えないよう上限キャップを設定
+  (defun my/imenu-list-resize-window-capped (&rest _)
+    "imenu-list の横幅が画面幅の 1/4 (25%) を超えないよう制限してリサイズする。"
+    (when (and (boundp 'imenu-list--line-entries) imenu-list--line-entries)
+      (let* ((max-w (max 20 (/ (frame-width) 4)))  ; 最大でも画面幅の 25% (1/4)
+             (fit-window-to-buffer-horizontally t))
+        (dolist (win (get-buffer-window-list (imenu-list-get-buffer-create)))
+          (fit-window-to-buffer win nil nil max-w 15)))))
+  (advice-add 'imenu-list-resize-window :override #'my/imenu-list-resize-window-capped)
 
   ;; nov-mode（EPUB リーダー）対策：
   ;; nov.el の imenu インデックスは、章ドキュメントの位置情報として "c0.xhtml" 等の
@@ -2724,7 +2900,8 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
 ;; howm-markdown.el を howm より先に読み込む
 ;; （# をタイトルヘッダーにする等、Markdown 互換設定を事前に行う）
 (use-package howm
-  :demand t
+  :defer t
+  :commands (howm-menu howm-list-all howm-create howm-remember howm-mode)
   :init
   ;; howm-markdown を howm ロード前に適用
   (require 'howm-markdown)
@@ -2734,6 +2911,18 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
   (setq howm-keyword-file (expand-file-name ".howm-keys" howm-directory))
   ;; ファイル名フォーマット（howm-markdown のデフォルトを上書き）
   (setq howm-file-name-format "%Y%m%d-%H%M%S.md")
+
+  ;; howm メモは常に UTF-8 で読み込み・新規作成・保存する
+  (setq howm-process-coding-system 'utf-8)
+  (add-hook 'howm-create-file-hook
+            (lambda ()
+              (set-buffer-file-coding-system 'utf-8 t)))
+  (add-hook 'howm-mode-hook
+            (lambda ()
+              (set-buffer-file-coding-system 'utf-8 t)))
+  (add-to-list 'file-coding-system-alist
+               (cons (concat "^" (regexp-quote (expand-file-name howm-directory)) ".*\\.md\\'")
+                     'utf-8))
 
   ;; 保存時に1行目の # タイトル をファイル名に反映させる
   (defun my-howm-update-filename-with-title ()
@@ -2801,6 +2990,11 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
   ;; キーバインド：C-c # でタグ検索
   (define-key howm-mode-map (kbd "C-c #") 'my-howm-search-hashtag-at-point)
 
+  ;; howmS / howmC 画面で q を押したとき、ウィンドウごと確実に閉じる
+  (with-eval-after-load 'howm-view
+    (define-key howm-view-summary-mode-map (kbd "q") #'quit-window)
+    (define-key howm-view-contents-mode-map (kbd "q") #'quit-window))
+
   ;; howm-kill-all 実行後にミニバッファのプロンプトをクリアする
   (advice-add 'howm-kill-all :after (lambda (&rest _) (message nil))))
 
@@ -2850,7 +3044,7 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
         (cons '("!\\[.*?\\](\\([^)]+\\))" . 1)
               iimage-mode-image-regex-alist))
 
-  ;; 🌟 Windows環境でのフリーズ対策:
+  ;; Windows環境でのフリーズ対策:
   ;; Web上の画像URL（http://, https://）や UNC パス（//...）が含まれている場合、
   ;; locate-file が Windows のネットワーク探索（SMB/WebDAV）を走らせて
   ;; タイムアウトするまで数分間 Emacs 全体がフリーズするのを防ぐ。
@@ -2872,7 +3066,8 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
 ;; ⑥⑦ org-download を howm/markdown で使う
 ;;     クリップボード貼り付け（C-c v）・ドラッグドロップ両対応
 (use-package org-download
-  :demand t
+  :defer t
+  :commands (org-download-clipboard org-download-enable)
   :config
 
   ;; howm/markdown バッファでの保存先を「メモと同じフォルダの img/」に設定
@@ -2926,24 +3121,30 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
 
 
 ;; =====================================================================
-;; 14. Obsidian との連携
+;; 14. Obsidian との連携 (完全遅延読み込み)
+;; ─ 起動時の全ファイルスキャンによるフリーズを防止するため、
+;;   キーを押した時 (C-c o ...) に初めてオンデマンドでロードします
 ;; =====================================================================
 
 (use-package obsidian
-  :config
+  :defer t
+  :commands (obsidian-jump
+             obsidian-insert-link
+             obsidian-create-missing-file
+             obsidian-mode)
+  :bind
+  (("C-c o f" . obsidian-jump)
+   ("C-c o i" . obsidian-insert-link)
+   ("C-c o c" . obsidian-create-missing-file))
+  :init
+  ;; 起動前・ロード前でもディレクトリ変数は事前定義しておく
   (setq obsidian-directory (expand-file-name "Documents/Obsidian-memo"
-                                              (or (getenv "USERPROFILE") "~")))
-  ;; 新規ノートを常にVaultルートに保存する（フラット運用）
+                                            (or (getenv "USERPROFILE") "~")))
   (setq obsidian-default-directory obsidian-directory)
+  :config
   ;; WikiLink（[[...]]）を無効化してMarkdown形式 [title](file.md) を使う
   (setq obsidian-wiki-link-style nil)
-  (setq obsidian-wiki-link-p     nil)
-  ;; キーバインド（use-package :bind で書くと obsidian-mode-map を使えるが、
-  ;;   global-set-key のままでも動作に問題はない）
-  (global-set-key (kbd "C-c o f") 'obsidian-jump)
-  (global-set-key (kbd "C-c o i") 'obsidian-insert-link)
-  (global-set-key (kbd "C-c o c") 'obsidian-create-missing-file)
-  (add-hook 'markdown-mode-hook 'obsidian-mode))
+  (setq obsidian-wiki-link-p     nil))
 
 
 ;; =====================================================================
@@ -2960,7 +3161,33 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
         calfw-fchar-left-junction    ?+
         calfw-fchar-right-junction   ?+
         calfw-fchar-top-junction     ?+
-        calfw-fchar-bottom-junction  ?+))
+        calfw-fchar-bottom-junction  ?+)
+
+  ;; カレンダー描画幅に安全マージンを持たせ、スクロールバーや枠線との干渉・はみ出しを確実に防止
+  ;; （7列あるため -8文字引くことで確実に各マス目が1文字縮み、右端に8〜14文字の確実な余白を確保）
+  (advice-add 'calfw-default-window-dims :filter-return
+              (lambda (dims)
+                (let* ((body-w (window-body-width (selected-window)))
+                       (safe-w (max 40 (- body-w 8))))
+                  (cons safe-w (cdr dims)))))
+
+  ;; カレンダーバッファ専用の表示最適化フック
+  (add-hook 'calfw-calendar-mode-hook
+            (lambda ()
+              (setq-local display-line-numbers nil) ; 行番号を完全に無効化（横幅圧迫を防止）
+              (display-line-numbers-mode -1) ; 行番号を無効化（はみ出し防止）
+              (visual-line-mode -1)          ; 折り返しを無効化（枠線崩れ防止）
+              (setq-local truncate-lines t)  ; 切り詰め
+              (whitespace-mode -1)))         ; 空白マークをOFF
+
+  ;; ウィンドウサイズ変更（分割やリサイズ）時にカレンダー幅を自動で再フィット
+  (add-hook 'window-size-change-functions
+            (lambda (frame)
+              (let ((buf (get-buffer "*cfw-calendar*")))
+                (when (and buf (get-buffer-window buf frame))
+                  (with-current-buffer buf
+                    (when (fboundp 'calfw-refresh-calendar-buffer)
+                      (calfw-refresh-calendar-buffer))))))))
 
 (use-package calfw-howm
   :after (calfw howm)
@@ -2969,9 +3196,6 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
   (setq calfw-howm-schedule-summary-transformer
         (lambda (s) (if (string-match "^\\[\\(.*?\\)\\]" s) (match-string 1 s) s))))
 
-(use-package calfw-org
-  :after (calfw org))
-
 ;; 祝日設定
 (use-package japanese-holidays
   :defer t
@@ -2979,18 +3203,474 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
   (setq calendar-holidays
         (append japanese-holidays holiday-local-holidays holiday-other-holidays)))
 
+;; howm メモ（作成日）を calfw カレンダーに表示するデータソース
+(defun my/calfw-howm-memo-period-to-calendar (begin end)
+  "BEGIN から END までの期間に作成された howm メモを calfw 形式で返す。"
+  (let* ((dir (or (bound-and-true-p howm-directory)
+                  (expand-file-name "Documents/Obsidian-memo/01_kami" (getenv "USERPROFILE"))))
+         (begin-abs (calendar-absolute-from-gregorian begin))
+         (end-abs (calendar-absolute-from-gregorian end))
+         (contents nil))
+    (when (file-directory-p dir)
+      (dolist (filepath (directory-files dir t "\\`[0-9]\\{8\\}-.*\\.md\\'"))
+        (let ((filename (file-name-nondirectory filepath)))
+          (when (string-match "\\`\\([0-9]\\{4\\}\\)\\([0-9]\\{2\\}\\)\\([0-9]\\{2\\}\\)-" filename)
+            (let* ((year (string-to-number (match-string 1 filename)))
+                   (month (string-to-number (match-string 2 filename)))
+                   (day (string-to-number (match-string 3 filename)))
+                   (date (list month day year))
+                   (date-abs (calendar-absolute-from-gregorian date)))
+              (when (and (<= begin-abs date-abs) (<= date-abs end-abs))
+                (let ((title
+                       (if (string-match "_\\(.+\\)\\.md\\'" filename)
+                           (match-string 1 filename)
+                         (with-temp-buffer
+                           (insert-file-contents filepath nil 0 200)
+                           (goto-char (point-min))
+                           (let ((first-line (buffer-substring-no-properties
+                                              (line-beginning-position)
+                                              (line-end-position))))
+                             (replace-regexp-in-string "^[#* \t\\[\\]]+" "" first-line))))))
+                  (when (or (null title) (string-blank-p title))
+                    (setq title (file-name-sans-extension filename)))
+                  (when (> (length title) 16)
+                    (setq title (concat (substring title 0 15) "…")))
+                  (let ((item-text (format "📝 %s" title)))
+                    (setq contents (calfw--contents-add date item-text contents))))))))))
+    contents))
+
+(defun my/calfw-howm-memo-create-source (&optional name color)
+  "howm メモの作成日をカレンダーに表示する calfw ソースを生成する。"
+  (make-calfw-source
+   :name (or name "howm-memo")
+   :color (or color "#98be65")
+   :data #'my/calfw-howm-memo-period-to-calendar))
+
 (defun my/open-calendar ()
-  "howm と org の予定を統合してカレンダーを表示します。"
+  "howm の予定とメモを統合したカレンダーを開閉（トグル）します。"
   (interactive)
-  (require 'calfw)
-  (require 'calfw-howm)
-  (require 'calfw-org)
-  (calfw-open-calendar-buffer
-   :contents-sources
-   (list
-    (calfw-howm-create-source "howm" "SkyBlue") ; howm の予定
-    (calfw-org-create-source  nil "org" "Orange")  ; org の予定
-    )))
+  (let ((cal-buf (get-buffer "*cfw-calendar*")))
+    (cond
+     ;; 1. 現在のバッファがカレンダーの場合: 即座に閉じる
+     ((or (derived-mode-p 'calfw-calendar-mode 'cfw:calendar-mode)
+          (eq (current-buffer) cal-buf))
+      (quit-window))
+     ;; 2. 画面上のウィンドウにカレンダーが表示されている場合: そのウィンドウを閉じる
+     ((and cal-buf (get-buffer-window cal-buf))
+      (quit-window nil (get-buffer-window cal-buf)))
+     ;; 3. カレンダーバッファが存在して裏に隠れている場合: 表示して最新化
+     (cal-buf
+      (switch-to-buffer cal-buf)
+      (when (fboundp 'calfw-refresh-calendar-buffer)
+        (calfw-refresh-calendar-buffer)))
+     ;; 4. カレンダーバッファがまだない場合: 新規に作成して開く
+     (t
+      (require 'calfw)
+      (require 'calfw-howm)
+      (calfw-open-calendar-buffer
+       :contents-sources
+       (list
+        (calfw-howm-create-source "howm" "SkyBlue") ; howm の予定
+        (my/calfw-howm-memo-create-source "memo" "#98be65"))) ; howm のメモ（予定とは区別）
+      ;; 新規作成後も現在のウィンドウ幅に合わせて確実に即座リサイズ
+      (when (fboundp 'calfw-refresh-calendar-buffer)
+        (calfw-refresh-calendar-buffer))))))
+
+;; カレンダー画面からの howm 予定追加 ＆ ガイド連携
+(defun my/calfw-add-schedule ()
+  "カレンダーで選択中の日付に howm の予定（Markdown形式）を追加して即座に再描画する。"
+  (interactive)
+  (let* ((mdy (calfw-cursor-to-nearest-date))
+         (m (calendar-extract-month mdy))
+         (d (calendar-extract-day mdy))
+         (y (calendar-extract-year mdy))
+         (date-str (format "%04d-%02d-%02d" y m d))
+         (input (read-string (format "予定を追加 [%s]: " date-str))))
+    (when (and input (not (string-blank-p input)))
+      (let* ((now (current-time))
+             (now-str (format-time-string "%Y-%m-%d %H:%M" now))
+             (file-name (format-time-string "%Y%m%d-%H%M%S_schedule.md" now))
+             (file-path (expand-file-name file-name howm-directory))
+             (schedule-text
+              (if (string-match "\\`\\([0-9]\\{1,2\\}:[0-9]\\{2\\}\\)[[:space:]]+\\(.*\\)\\'" input)
+                  (let ((time (match-string 1 input))
+                        (title (match-string 2 input)))
+                    (format "[%s %s]@ %s" date-str time title))
+                (format "[%s]@ %s" date-str input)))
+             (content (format "# %s\n#schedule #howm\n[%s]\n\n%s\n"
+                              schedule-text now-str schedule-text)))
+        (with-temp-file file-path
+          (insert content))
+        (when (fboundp 'howm-keyword-update)
+          (howm-keyword-update))
+        (calfw-refresh-calendar-buffer)
+        (message "予定を登録しました: %s" schedule-text)))))
+
+(defun my/calfw-create-howm-memo ()
+  "カレンダーで選択中の日付の howm 予定メモ（Markdown）を新規作成・編集する。"
+  (interactive)
+  (let* ((mdy (calfw-cursor-to-nearest-date))
+         (m (calendar-extract-month mdy))
+         (d (calendar-extract-day mdy))
+         (y (calendar-extract-year mdy))
+         (date-str (format "%04d-%02d-%02d" y m d))
+         (now (current-time))
+         (now-str (format-time-string "%Y-%m-%d %H:%M" now))
+         (file-name (format-time-string "%Y%m%d-%H%M%S.md" now))
+         (file-path (expand-file-name file-name howm-directory)))
+    (find-file file-path)
+    (insert (format "# [%s]@ \n#schedule #howm\n[%s]\n\n" date-str now-str))
+    (forward-line -4)
+    (end-of-line)))
+
+;; カレンダー選択日のメモを howmC を介さず「普通にファイルを開く（閉じたらカレンダーに自動復帰）」
+(defun my/calfw-open-file-at-date ()
+  "カレンダーで選択中の日付のメモ・予定ファイルを、howmC を使わず普通に開きます。
+1件なら即座に開き、複数あればタイトル一覧から選択できます。
+メモを閉じる（C-w等）と、自動的にカレンダー画面に復帰します。"
+  (interactive)
+  (let* ((mdy (calfw-cursor-to-nearest-date))
+         (cal-buf (current-buffer))
+         (cal-win (selected-window))
+         (m (calendar-extract-month mdy))
+         (d (calendar-extract-day   mdy))
+         (y (calendar-extract-year  mdy))
+         (date-compact (format "%04d%02d%02d" y m d))
+         (date-hyphen (format "%04d-%02d-%02d" y m d))
+         (dir (or (bound-and-true-p howm-directory)
+                  (expand-file-name "Documents/Obsidian-memo/01_kami" (getenv "USERPROFILE"))))
+         (matched-files nil)
+         (open-and-setup
+          (lambda (filepath)
+            (find-file filepath)
+            (when (buffer-live-p cal-buf)
+              (setq-local my/calfw-return-buffer cal-buf)
+              (setq-local my/calfw-return-window cal-win)
+              (add-hook 'kill-buffer-hook
+                        (lambda ()
+                          (let ((c my/calfw-return-buffer)
+                                (w my/calfw-return-window))
+                            (run-at-time 0 nil
+                                         (lambda (buf win)
+                                           (when (and (buffer-live-p buf) (window-live-p win))
+                                             (set-window-buffer win buf)))
+                                         c w)))
+                        nil t)))))
+    (when (file-directory-p dir)
+      (dolist (f (directory-files dir t "\\.md\\'"))
+        (let ((fname (file-name-nondirectory f)))
+          (when (and (not (string-match-p "\\`0000" fname))
+                     (or (string-match-p (concat "\\`" date-compact) fname)
+                         (with-temp-buffer
+                           (insert-file-contents f nil 0 500)
+                           (goto-char (point-min))
+                           (search-forward (format "[%s]" date-hyphen) nil t))))
+            (push f matched-files)))))
+    (cond
+     ((null matched-files)
+      (message "指定日 [%04d-%02d-%02d] のメモ・予定はありません" y m d))
+     ((= 1 (length matched-files))
+      (funcall open-and-setup (car matched-files)))
+     (t
+      (let* ((cands
+              (mapcar
+               (lambda (f)
+                 (let* ((fname (file-name-nondirectory f))
+                        (title
+                         (if (string-match "_\\(.+\\)\\.md\\'" fname)
+                             (match-string 1 fname)
+                           (with-temp-buffer
+                             (insert-file-contents f nil 0 200)
+                             (goto-char (point-min))
+                             (let ((first-line (buffer-substring-no-properties
+                                                (line-beginning-position)
+                                                (line-end-position))))
+                               (replace-regexp-in-string "^[#* \t\\[\\]]+" "" first-line))))))
+                   (when (or (null title) (string-blank-p title))
+                     (setq title fname))
+                   (cons (format "%s (%s)" title fname) f)))
+               (nreverse matched-files)))
+             (choice (completing-read "開くメモを選択: " (mapcar #'car cands) nil t)))
+        (when choice
+          (funcall open-and-setup (cdr (assoc choice cands)))))))))
+
+;; カレンダー選択日の「通常メモ」を新規作成
+(defun my/calfw-create-normal-memo ()
+  "カレンダーで選択中の日付で howm 通常メモ（Markdown）を新規作成します。
+閉じると自動的にカレンダー画面に復帰し、カレンダーを再描画します。"
+  (interactive)
+  (let* ((mdy (calfw-cursor-to-nearest-date))
+         (cal-buf (current-buffer))
+         (cal-win (selected-window))
+         (m (calendar-extract-month mdy))
+         (d (calendar-extract-day   mdy))
+         (y (calendar-extract-year  mdy))
+         (date-str (format "%04d-%02d-%02d" y m d))
+         (now (current-time))
+         (time-str (format-time-string "%H%M%S" now))
+         (file-name (format "%04d%02d%02d-%s.md" y m d time-str))
+         (dir (or (bound-and-true-p howm-directory)
+                  (expand-file-name "Documents/Obsidian-memo/01_kami" (getenv "USERPROFILE"))))
+         (file-path (expand-file-name file-name dir)))
+    (unless (file-directory-p dir)
+      (make-directory dir t))
+    (find-file file-path)
+    (insert (format "# \n#memo\n[%s %s]\n\n" date-str (format-time-string "%H:%M" now)))
+    (goto-char (point-min))
+    (end-of-line)
+    (when (buffer-live-p cal-buf)
+      (setq-local my/calfw-return-buffer cal-buf)
+      (setq-local my/calfw-return-window cal-win)
+      (add-hook 'kill-buffer-hook
+                (lambda ()
+                  (let ((c my/calfw-return-buffer)
+                        (w my/calfw-return-window))
+                    (run-at-time 0 nil
+                                 (lambda (buf win)
+                                   (when (and (buffer-live-p buf) (window-live-p win))
+                                     (set-window-buffer win buf)
+                                     (with-current-buffer buf
+                                       (when (fboundp 'calfw-refresh-calendar-buffer)
+                                         (calfw-refresh-calendar-buffer)))))
+                                 c w)))
+                nil t))))
+
+;; カレンダー専用 操作ガイド (F1 / ?)
+(defhydra hydra-calfw-help (:color blue :hint nil)
+  "
+  === カレンダー (calfw) 操作ガイド ===  [F8 / F1 / q] 閉じる
+  [予定・メモ操作]          [日付移動]                [表示切替]
+  i / a : クイック予定追加  h / j / k / l : 左 下 上 右  M : 月表示 (Month)
+  c     : 予定メモを新規作成 ← / ↓ / ↑ / → : 左 下 上 右  W : 週表示 (Week)
+  m     : 通常メモを新規作成 t / .         : 今日へ移動  T : 2週間表示
+  RET   : その日のメモを開く M-g           : 日付指定    D : 日表示 (Day)
+  SPC   : 選択項目の詳細    --------------------------------------------
+  ----------------------------------------------------------------------
+  g     : 最新表示に更新    TAB / S-TAB   : 次/前の項目 q : カレンダーを閉じる
+  ----------------------------------------------------------------------
+"
+  ("i" my/calfw-add-schedule :color blue)
+  ("a" my/calfw-add-schedule :color blue)
+  ("c" my/calfw-create-howm-memo :color blue)
+  ("m" my/calfw-create-normal-memo :color blue)
+  ("RET" my/calfw-open-file-at-date :color blue)
+  ("SPC" calfw-show-details-command :color blue)
+  ("h" calfw-navi-previous-day-command)
+  ("l" calfw-navi-next-day-command)
+  ("j" calfw-navi-next-week-command)
+  ("k" calfw-navi-previous-week-command)
+  ("t" calfw-navi-goto-today-command :color blue)
+  ("." calfw-navi-goto-today-command :color blue)
+  ("M-g" calfw-navi-goto-date-command :color blue)
+  ("M" calfw-change-view-month :color blue)
+  ("W" calfw-change-view-week :color blue)
+  ("T" calfw-change-view-two-weeks :color blue)
+  ("D" calfw-change-view-day :color blue)
+  ("g" calfw-refresh-calendar-buffer :color blue)
+  ("q" nil :color blue)
+  ("<escape>" nil :color blue)
+  ("<f1>" nil :color blue)
+  ("<F1>" nil :color blue)
+  ("<f8>" nil :color blue)
+  ("<F8>" nil :color blue))
+
+(with-eval-after-load 'calfw
+  (define-key calfw-calendar-mode-map (kbd "i") #'my/calfw-add-schedule)
+  (define-key calfw-calendar-mode-map (kbd "a") #'my/calfw-add-schedule)
+  (define-key calfw-calendar-mode-map (kbd "c") #'my/calfw-create-howm-memo)
+  (define-key calfw-calendar-mode-map (kbd "m") #'my/calfw-create-normal-memo)
+  (define-key calfw-calendar-mode-map (kbd "RET") #'my/calfw-open-file-at-date)
+  (define-key calfw-calendar-mode-map (kbd "<f8>") #'my/open-calendar)
+  (define-key calfw-calendar-mode-map (kbd "?") (lambda () (interactive) (if (fboundp 'hydra-calfw-help/body) (hydra-calfw-help/body) (describe-mode))))
+  (define-key calfw-calendar-mode-map (kbd "<f1>") (lambda () (interactive) (if (fboundp 'hydra-calfw-help/body) (hydra-calfw-help/body) (describe-mode)))))
+
+
+;; =====================================================================
+;; 15b. 🌦️ 中四国・全国 週間天気予報 (気象庁公式データ連携 / Pure Elisp)
+;; ─ Python不要、APIキー不要、Windows標準のcurlと内蔵JSONパーサーで即座に表示
+;; ─ M-o W または M-x weather で一発起動
+;; =====================================================================
+
+(require 'json)
+(require 'cl-lib)
+
+(defconst my/weather-groups
+  '(("【中国地方】"
+     (("広島" . "34")
+      ("岡山" . "33")
+      ("松江" . "32")
+      ("鳥取" . "31")
+      ("山口" . "35")))
+    ("【四国地方】"
+     (("高松" . "37")
+      ("松山" . "38")
+      ("徳島" . "36")
+      ("高知" . "39")))
+    ("【主要都市】"
+     (("大阪" . "27")
+      ("福岡" . "40")
+      ("東京" . "13")))))
+
+(defun my/weather--code-to-icon (code)
+  "気象庁の天気コードから絵文字アイコン・文字を返す。"
+  (if (or (null code) (string-empty-p (format "%s" code)))
+      "  -- "
+    (let ((c (aref (format "%s" code) 0)))
+      (cond
+       ((eq c ?1) "☀️晴")
+       ((eq c ?2) "☁️曇")
+       ((eq c ?3) "🌧️雨")
+       ((eq c ?4) "❄️雪")
+       (t "・")))))
+
+(defun my/weather--format-date (iso-str)
+  "ISO日付文字列から 'M/D(曜)' 形式を生成する。"
+  (if (and iso-str (string-match "\\`[0-9]\\{4\\}-\\([0-9]\\{2\\}\\)-\\([0-9]\\{2\\}\\)" iso-str))
+      (let* ((m (string-to-number (match-string 1 iso-str)))
+             (d (string-to-number (match-string 2 iso-str)))
+             (y (string-to-number (substring iso-str 0 4)))
+             (time (encode-time 0 0 0 d m y))
+             (w (nth (string-to-number (format-time-string "%w" time))
+                     '("日" "月" "火" "水" "木" "金" "土"))))
+        (format "%d/%d(%s)" m d w))
+    "--/--"))
+
+(defun my/weather-fetch-data ()
+  "気象庁 API から中四国・主要都市の天気データを一括取得して連想リストで返す。"
+  (let ((url "https://www.jma.go.jp/bosai/forecast/data/forecast/{340000,330000,320000,310000,350000,370000,380000,360000,390000,270000,400000,130000}.json")
+        (curl (or (executable-find "curl") "C:/Windows/System32/curl.exe"))
+        (coding-system-for-read 'utf-8)
+        (res-alist nil))
+    (with-temp-buffer
+      (call-process curl nil t nil "-s" "-k" "--ssl-no-revoke" url)
+      (goto-char (point-min))
+      (while (not (eobp))
+        (skip-chars-forward " \t\r\n")
+        (unless (eobp)
+          (condition-case nil
+              (let* ((data (json-parse-buffer :object-type 'plist :array-type 'list))
+                     (week (nth 1 data))
+                     (week-ts (plist-get week :timeSeries))
+                     (area0 (car (plist-get (car week-ts) :areas)))
+                     (area-code (plist-get (plist-get area0 :area) :code))
+                     (prefix (substring (format "%s" area-code) 0 2)))
+                (push (cons prefix data) res-alist))
+            (error (goto-char (point-max)))))))
+    res-alist))
+
+(defun my/weather ()
+  "中四国および主要都市の今日から向こう1週間の天気予報テーブルを上下2段（4日＋4日）で表示する。"
+  (interactive)
+  (message "気象庁から最新の天気予報を取得中...")
+  (when (and (eq system-type 'windows-nt) (fboundp 'set-fontset-font))
+    (set-fontset-font t 'emoji (font-spec :family "Segoe UI Emoji") nil 'prepend)
+    (set-fontset-font t 'symbol (font-spec :family "Segoe UI Emoji") nil 'prepend))
+  (let* ((data-alist (my/weather-fetch-data))
+         (buf (get-buffer-create "*Weather*"))
+         (sample (cdr (car data-alist)))
+         (short-sample (nth 0 sample))
+         (week-sample (nth 1 sample))
+         (today-iso (car (plist-get (car (plist-get short-sample :timeSeries)) :timeDefines)))
+         (today-date (my/weather--format-date today-iso))
+         (week-dates-iso (plist-get (car (plist-get week-sample :timeSeries)) :timeDefines))
+         (week-dates (mapcar #'my/weather--format-date week-dates-iso))
+         (dates (if today-date (cons today-date week-dates) week-dates))
+         ;; 全都市の気象データをパースしてリスト化
+         (city-weather-list
+          (mapcar
+           (lambda (group)
+             (cons (car group)
+                   (mapcar
+                    (lambda (city)
+                      (let* ((city-name (car city))
+                             (prefix (cdr city))
+                             (cdata (cdr (assoc prefix data-alist)))
+                             (short-data (nth 0 cdata))
+                             (week-data (nth 1 cdata))
+                             ;; 週間予報データ
+                             (w-ts (plist-get week-data :timeSeries))
+                             (w-codes (plist-get (car (plist-get (nth 0 w-ts) :areas)) :weatherCodes))
+                             (w-pops (plist-get (car (plist-get (nth 0 w-ts) :areas)) :pops))
+                             (temp-area (car (plist-get (nth 1 w-ts) :areas)))
+                             (w-mins (copy-sequence (plist-get temp-area :tempsMin)))
+                             (w-maxs (copy-sequence (plist-get temp-area :tempsMax)))
+                             ;; 今日の短期予報データ
+                             (s-ts (plist-get short-data :timeSeries))
+                             (today-code (when s-ts (nth 0 (plist-get (car (plist-get (nth 0 s-ts) :areas)) :weatherCodes))))
+                             (s-pops (when s-ts (plist-get (car (plist-get (nth 1 s-ts) :areas)) :pops)))
+                             (s-temps (when s-ts (plist-get (car (plist-get (nth 2 s-ts) :areas)) :temps)))
+                             (today-pop (when s-pops (format "%s%%" (or (car s-pops) "--"))))
+                             (today-tmax (if (and s-temps (nth 0 s-temps)) (format "%s°" (nth 0 s-temps)) "--°"))
+                             (today-tmin "--°"))
+                        ;; 明日（週間予報の初日）の気温・降水確率を短期予報で補正
+                        (when s-temps
+                          (setcar w-maxs (or (nth 3 s-temps) (nth 0 s-temps)))
+                          (when (>= (length s-temps) 3)
+                            (setcar w-mins (nth 2 s-temps))))
+                        (when (and s-pops (>= (length s-pops) 5))
+                          (setcar w-pops (nth 4 s-pops)))
+                        ;; 今日 + 週間予報の 8日分リストを構築
+                        (let* ((all-codes (if today-code (cons today-code w-codes) w-codes))
+                               (all-pops (if today-pop
+                                             (cons today-pop (mapcar (lambda (p) (if (and p (not (string-empty-p (format "%s" p)))) (format "%2s%%" p) "--%")) w-pops))
+                                           (mapcar (lambda (p) (if (and p (not (string-empty-p (format "%s" p)))) (format "%2s%%" p) "--%")) w-pops)))
+                               (all-tmax (if today-tmax
+                                             (cons today-tmax (mapcar (lambda (tx) (if (and tx (not (string-empty-p (format "%s" tx)))) (format "%2s°" tx) "--°")) w-maxs))
+                                           (mapcar (lambda (tx) (if (and tx (not (string-empty-p (format "%s" tx)))) (format "%2s°" tx) "--°")) w-maxs)))
+                               (all-tmin (if today-tmin
+                                             (cons today-tmin (mapcar (lambda (tn) (if (and tn (not (string-empty-p (format "%s" tn)))) (format "%2s°" tn) "--°")) w-mins))
+                                           (mapcar (lambda (tn) (if (and tn (not (string-empty-p (format "%s" tn)))) (format "%2s°" tn) "--°")) w-mins))))
+                          (list city-name all-codes all-pops all-tmax all-tmin))))
+                    (cadr group))))
+           my/weather-groups)))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        ;; テーブル描画用クロージャ（前半4日 / 後半4日）
+        (cl-labels ((render-block (title start-idx end-idx is-first)
+                      (let* ((sub-dates (cl-subseq dates start-idx (min end-idx (length dates))))
+                             (sep-line (concat "--------+-"
+                                               (mapconcat (lambda (_) "--------------") sub-dates "-+-")
+                                               "\n")))
+                        (insert "==========================================================================\n")
+                        (if is-first
+                            (insert (format " 🌦️ 中四国・全国 天気予報【%s】                [r] 更新  [q] 閉じる\n" title))
+                          (insert (format " 🌦️ 天気予報【%s】\n" title)))
+                        (insert "==========================================================================\n")
+                        (insert " 都市   | " (mapconcat (lambda (d) (format "%-14s" d)) sub-dates "| ") "\n")
+                        (insert sep-line)
+                        (dolist (group city-weather-list)
+                          (insert (car group) "\n")
+                          (dolist (item (cdr group))
+                            (let ((city-name (nth 0 item))
+                                  (codes (nth 1 item))
+                                  (pops (nth 2 item))
+                                  (tmaxs (nth 3 item))
+                                  (tmins (nth 4 item)))
+                              (insert (format " %-4s | " city-name))
+                              (cl-loop for i from start-idx to (1- (min end-idx (length dates))) do
+                                       (let* ((code (nth i codes))
+                                              (icon (my/weather--code-to-icon code))
+                                              (pop (or (nth i pops) "--%"))
+                                              (tmax (or (nth i tmaxs) "--°"))
+                                              (tmin (or (nth i tmins) "--°"))
+                                              (cell (format "%s %s/%s %s" icon tmax tmin pop)))
+                                         (insert (format "%-14s| " cell))))
+                              (insert "\n")))
+                          (insert sep-line))
+                        (insert "\n"))))
+          ;; 前半4日（今日〜3日後）
+          (render-block "前半4日: 今日〜3日後" 0 4 t)
+          ;; 後半4日（4日後〜7日後）
+          (render-block "後半4日: 4日後〜7日後" 4 8 nil))
+        (goto-char (point-min))
+        (special-mode)
+        (local-set-key (kbd "r") #'my/weather)
+        (local-set-key (kbd "q") #'quit-window)))
+    (pop-to-buffer buf)
+    (message "天気予報を更新しました（4日＋4日 上下2段）")))
+
+(defalias 'weather #'my/weather)
 
 
 ;; =====================================================================
@@ -3022,8 +3702,9 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
              (lambda ()
                (message "💡 Calc: [C-o] メニュー表示  /  [C-u 0 DEL] スタック全消去  /  [C-x * 0] 初期化")))))
 
-;; F7 で Calc を即起動（電卓を呼び出す感覚で）
-(global-set-key [f7] #'calc)
+;; F6 で Calc を即起動（電卓を呼び出す感覚で）
+(global-set-key [f6] #'calc)
+(global-set-key (kbd "<f6>") #'calc)
 
 ;; M-x calculator で表示が切れる問題への対策（ウィンドウ高さを最低4行に拡張）
 (add-hook 'calculator-mode-hook
@@ -3164,7 +3845,7 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
   :init
   (setq lookup-enable-splash nil)
   :config
-  ;; 🌟 辞書データの場所を指定してください
+  ;; 辞書データの場所を指定してください
   ;; 例: '("/path/to/dict1" "/path/to/dict2")
   (setq lookup-search-agents
         '(
@@ -3210,11 +3891,82 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
       (apply orig-fn args)))
   (advice-add 'nov-render-document :around #'my/nov-render-document--boost-gc)
 
+  ;; 読書進捗ヘッダーライン（書籍タイトル・章名・進捗率を表示）
+  (defun my/nov-header-line ()
+    (if (and (bound-and-true-p nov-documents) (> (length nov-documents) 0))
+        (let* ((title (or (alist-get 'title nov-metadata)
+                          (if nov-file-name
+                              (file-name-sans-extension (file-name-nondirectory nov-file-name))
+                            (buffer-name))))
+               (chap (or (nov-current-document-title) ""))
+               (idx (1+ (or nov-documents-index 0)))
+               (total (length nov-documents))
+               (pct (/ (* idx 100) (max 1 total))))
+          (format " 📖 %s %s [第 %d/%d 章 (%d%%)]"
+                  (propertize title 'face 'bold)
+                  (if (string-empty-p chap) "" (format "› %s " (propertize chap 'face 'italic)))
+                  idx total pct))
+      ""))
+
   (defun my/nov-mode-hook ()
     (setq-local line-spacing 0.2)
     (setq-local fill-column 80)
+    (setq-local header-line-format '((:eval (my/nov-header-line))))
     (visual-line-mode 1))
-  (add-hook 'nov-mode-hook #'my/nov-mode-hook))
+  (add-hook 'nov-mode-hook #'my/nov-mode-hook)
+
+  ;; nov-mode キーバインド（1行スクロール、半画面スクロール、しおり、本棚、目次）
+  (with-eval-after-load 'nov
+    (define-key nov-mode-map (kbd "j") (lambda () (interactive) (scroll-up-line 1)))
+    (define-key nov-mode-map (kbd "k") (lambda () (interactive) (scroll-down-line 1)))
+    (define-key nov-mode-map (kbd "d") #'nov-scroll-up)
+    (define-key nov-mode-map (kbd "u") #'nov-scroll-down)
+    (define-key nov-mode-map (kbd "m") #'bookmark-set)
+    (define-key nov-mode-map (kbd "b") #'bookmark-jump)
+    (define-key nov-mode-map (kbd "M") (lambda () (interactive) (if (fboundp 'consult-bookmark) (consult-bookmark) (list-bookmarks))))
+    (define-key nov-mode-map (kbd "B") #'my/nov-bookshelf)
+    (define-key nov-mode-map (kbd "o") (lambda () (interactive) (if (fboundp 'consult-imenu) (consult-imenu) (imenu))))
+    (define-key nov-mode-map (kbd "?") (lambda () (interactive) (if (fboundp 'hydra-nov-help/body) (hydra-nov-help/body) (describe-mode)))))
+
+  ;; nov.el EPUBリーダー 日本語操作ガイド (F1 / ?)
+  (defhydra hydra-nov-help (:color blue :hint nil)
+    "
+  === nov.el EPUBリーダー 操作ガイド ===  [F1 / q] 閉じる
+  [スクロール・移動]        [章・目次移動]            [しおり・本棚]
+  Space / d : ページ送り    ] / N : 次の章            m : しおりを挟む (Bookmark)
+  BS    / u : ページ戻し    [ / P : 前の章            b : しおりへジャンプ
+  j     / k : 1行送り/戻し  o     : 目次 (Consult)    M : しおり一覧 (Consult)
+  [表示・文字サイズ]        t     : 目次ページ        B : 本棚 (書籍一覧を開く)
+  + / - / 0 : 拡大/縮小/標準 F4    : 目次サイドバー    d : 書籍詳細
+  ----------------------------------------------------------------------
+"
+    (" " nov-scroll-up :color blue)
+    ("n" nov-scroll-up :color blue)
+    ("d" nov-scroll-up :color blue)
+    ("<backspace>" nov-scroll-down :color blue)
+    ("p" nov-scroll-down :color blue)
+    ("u" nov-scroll-down :color blue)
+    ("j" (lambda () (interactive) (scroll-up-line 1)) :color blue)
+    ("k" (lambda () (interactive) (scroll-down-line 1)) :color blue)
+    ("]" nov-next-document :color blue)
+    ("N" nov-next-document :color blue)
+    ("[" nov-previous-document :color blue)
+    ("P" nov-previous-document :color blue)
+    ("o" (lambda () (interactive) (if (fboundp 'consult-imenu) (consult-imenu) (imenu))) :color blue)
+    ("<f4>" (lambda () (interactive) (if (fboundp 'imenu-list-smart-toggle) (imenu-list-smart-toggle) (speedbar-get-focus))) :color blue)
+    ("t" nov-goto-toc :color blue)
+    ("m" bookmark-set :color blue)
+    ("b" bookmark-jump :color blue)
+    ("M" (lambda () (interactive) (if (fboundp 'consult-bookmark) (consult-bookmark) (list-bookmarks))) :color blue)
+    ("B" my/nov-bookshelf :color blue)
+    ("d" nov-display-metadata :color blue)
+    ("+" text-scale-increase :color blue)
+    ("-" text-scale-decrease :color blue)
+    ("0" (lambda () (interactive) (text-scale-set 0)) :color blue)
+    ("q" nil :color blue)
+    ("<escape>" nil :color blue)
+    ("<f1>" nil :color blue)
+    ("<F1>" nil :color blue)))
 
 ;; Calibre の ebook-convert を探す（PATH → 環境変数 ProgramFiles 系の順）
 (defun my/find-calibre-converter ()
@@ -3223,6 +3975,56 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
       (cl-find-if #'file-exists-p
                   (list (expand-file-name "Calibre2/ebook-convert.exe" (or (getenv "ProgramFiles") "C:/Program Files"))
                         (expand-file-name "Calibre2/ebook-convert.exe" (or (getenv "ProgramFiles(x86)") "C:/Program Files (x86)"))))))
+
+;; 電子書籍ライブラリ・本棚機能 (Consult 連携)
+(defcustom my/nov-books-directories
+  (list (expand-file-name "Documents" (getenv "USERPROFILE"))
+        (expand-file-name "Downloads" (getenv "USERPROFILE"))
+        (expand-file-name "Desktop" (getenv "USERPROFILE")))
+  "EPUB / AZW3 書籍ファイルを探索するディレクトリのリスト。"
+  :type '(repeat directory)
+  :group 'nov)
+
+(defun my/nov-bookshelf ()
+  "本棚メニュー: 最近開いた書籍や指定ディレクトリ内の電子書籍（EPUB/AZW3）を一覧・検索して開きます。"
+  (interactive)
+  (let ((candidates '()))
+    ;; 1. recentf から最近読んだ書籍を収集
+    (when (boundp 'recentf-list)
+      (dolist (f recentf-list)
+        (when (and (stringp f)
+                   (string-match-p "\\.\\(epub\\|azw3?\\)\\'" f)
+                   (file-exists-p f))
+          (push (cons (format "📖 [最近] %s  (%s)"
+                              (file-name-nondirectory f)
+                              (file-name-directory f))
+                      f)
+                candidates))))
+    ;; 2. 指定ディレクトリから探索
+    (dolist (dir my/nov-books-directories)
+      (when (and dir (file-directory-p dir))
+        (dolist (f (ignore-errors
+                     (directory-files-recursively dir "\\.\\(epub\\|azw3?\\)\\'" nil
+                                                  (lambda (d) (not (string-match-p "/\\." d))))))
+          (let ((entry (cons (format "📚 %s  (%s)"
+                                     (file-name-nondirectory f)
+                                     (file-name-directory f))
+                             f)))
+            (unless (rassoc f candidates)
+              (push entry candidates))))))
+    (setq candidates (nreverse candidates))
+    (push (cons "📂 [ファイル選択ダイアログから開く...]" 'choose-file) candidates)
+    (let* ((prompt "本棚から開く書籍を選択: ")
+           (cands-alist candidates)
+           (selected (if (fboundp 'consult--read)
+                         (consult--read (mapcar #'car cands-alist) :prompt prompt :sort nil)
+                       (completing-read prompt (mapcar #'car cands-alist) nil t)))
+           (target (cdr (assoc selected cands-alist))))
+      (cond
+       ((eq target 'choose-file)
+        (my/nov-open-epub))
+       (target
+        (find-file target))))))
 
 (defun my/nov-open-epub ()
   "EPUB ファイルを選択して開きます。"
@@ -3405,7 +4207,8 @@ EPUB への変換とオープンが終わったら、元の AZW/AZW3 バッフ�
 ;; 21b. Mozc 日本語入力（モードレス）
 ;; =====================================================================
 ;; 前提:
-;;   - Windows に Google 日本語入力がインストールされていること
+;;   - Windows に本家「Google 日本語入力」がインストールされていること
+;;     （※mozkey 等ではなく本家本体が必要。常用する既定IMEにしておく必要はありません）
 ;;   - mozc_emacs_helper.exe を bin/ に配置済み
 ;;     (https://github.com/smzht/mozc_emacs_helper の ver_2.31.5810.100)
 
@@ -3488,89 +4291,7 @@ EPUB への変換とオープンが終わったら、元の AZW/AZW3 バッフ�
 )
 
 
-;; =====================================================================
-;; 22. gptel（LLM チャットクライアント）
-;; =====================================================================
 
-(use-package gptel
-  :ensure t
-  :config
-
-
-  (require 'gptel-gemini)
-  (require 'gptel-openai)
-  (require 'gptel-openai-extras)
-
-  (defun my/gptel-api-key (envvar &optional auth-host)
-    "Return a function that reads an API key from ENVVAR or auth-source."
-    (lambda ()
-      (or (getenv envvar)
-          (when auth-host
-            (ignore-errors
-              (gptel-api-key-from-auth-source auth-host)))
-          (user-error "Set %s or add an auth-source entry for %s"
-                      envvar (or auth-host "the active gptel backend")))))
-
-  ;; Windows 付属 curl.exe が Schannel の SEC_E_NO_CREDENTIALS で失敗する
-  ;; 環境があるため、ポータブル同梱 curl を優先する。
-  (let ((portable-curl (expand-file-name "../bin/curl.exe" user-emacs-directory)))
-    (when (file-executable-p portable-curl)
-      (setq gptel-use-curl portable-curl
-            ;; 同梱 curl は CA bundle が無い環境で証明書検証に失敗する。
-            ;; cacert.pem を導入できたら --cacert 指定に置き換える。
-            gptel-curl-extra-args '("--insecure"))))
-
-  ;; curl プロセスのコーディングシステムを UTF-8 に固定（日本語環境でのCP932化を防ぐ）
-  (add-to-list 'process-coding-system-alist
-               '("curl" . (utf-8 . utf-8)))
-
-  ;; 🌟 LLMが自律的にツールを呼び出せるようにする設定
-  (setq gptel-use-tools t)
-
-
-  ;; ── デフォルトモデル（OpenAI GPT-4o）──────────────────────────────
-  (setq gptel-model   'gpt-4o
-        gptel-api-key (my/gptel-api-key "OPENAI_API_KEY" "api.openai.com"))
-
-  ;; ── xAI Grok ──────────────────────────────────────────────────────
-  (gptel-make-xai "xAI"
-    :key    (my/gptel-api-key "XAI_API_KEY" "api.x.ai")
-    :stream t)
-
-  ;; ── Google Gemini（AI Studio）─────────────────────────────────────
-  (gptel-make-gemini "Gemini"
-    :key    (my/gptel-api-key "GEMINI_API_KEY" "generativelanguage.googleapis.com")
-    :models '(gemini-2.5-flash
-              gemini-2.5-pro
-              gemini-2.0-flash
-              gemini-1.5-flash
-              gemini-1.5-pro)
-    :stream t)
-
-  ;; ── OpenRouter ────────────────────────────────────────────────────
-  ;; OpenRouter 経由で多数のモデルにアクセスできます。
-  ;; :models に使いたいモデルを列挙してください。
-  (gptel-make-openai "OpenRouter"
-    :host    "openrouter.ai"
-    :endpoint "/api/v1/chat/completions"
-    :key     (my/gptel-api-key "OPENROUTER_API_KEY" "openrouter.ai")
-    :models  '(anthropic/claude-opus-4
-               anthropic/claude-sonnet-4
-               meta-llama/llama-3.3-70b-instruct
-               google/gemini-2.5-flash
-               google/gemini-2.5-pro
-               deepseek/deepseek-r1)
-    :stream  t)
-
-  ;; ── キーバインド ──────────────────────────────────────────────────
-  ;; 🌟 CUA モード対応：C-RET は CUA の矩形選択に使われるため回避
-  ;;    C-c RET  → gptel-send  （CUA と非競合）
-  ;;    C-c g g  → gptel       （チャットバッファを開く）
-  ;;    C-c g m  → gptel-menu  （モデル・パラメータ切り替え）
-  :bind
-  (("C-c RET" . gptel-send)   ; 選択範囲／カーソル位置を送信
-   ("C-c g g" . gptel)        ; gptel バッファを開く（旧 C-c C-<return>）
-   ("C-c g m" . gptel-menu))) ; モデル・パラメータ切り替えメニュー
 
 
 ;; =====================================================================
@@ -3595,7 +4316,7 @@ EPUB への変換とオープンが終わったら、元の AZW/AZW3 バッフ�
           ("backlog\\.jp" . markdown-mode)
           ("slack\\.com" . markdown-mode)))
 
-  ;; 🌟 WebSocket切断時にバッファが自動キルされるのを防ぐアドバイス
+  ;; WebSocket切断時にバッファが自動キルされるのを防ぐアドバイス
   (defun my/atomic-chrome-on-close-no-kill (socket)
     "WebSocket切断時にバッファをキルせず、編集中のデータを保護します。"
     (let ((buffer (atomic-chrome-get-buffer-by-socket socket)))
@@ -4166,7 +4887,227 @@ EPUB への変換とオープンが終わったら、元の AZW/AZW3 バッフ�
 
 (use-package meow
   :ensure t
+  :custom
+  (meow-use-dynamic-face-color nil) ; 勝手なフェイスの自動ブレンド・文字色黒化を抑止
   :config
+  ;; Beaconのフェイク選択オーバーレイがセカンダリセレクションに埋もれないよう最優先表示（priority 100）
+  (advice-add 'meow--beacon-add-overlay-at-region :around
+              (lambda (orig-fun type p1 p2 backward)
+                (funcall orig-fun type p1 p2 backward)
+                (when (and meow--beacon-overlays (overlayp (car meow--beacon-overlays)))
+                  (overlay-put (car meow--beacon-overlays) 'priority 100))))
+
+  ;; スマートケース用正規表現生成関数
+  (defun my/meow--smart-case-regexp (pattern)
+    "PATTERNが大文字を含まない小文字のみの場合、大文字小文字無視の正規表現に展開する。"
+    (if (isearch-no-upper-case-p pattern t)
+        (let ((chars (mapcar (lambda (c)
+                               (if (and (>= c ?a) (<= c ?z))
+                                   (format "[%c%c]" c (upcase c))
+                                 (regexp-quote (char-to-string c))))
+                             (string-to-list pattern))))
+          (apply #'concat chars))
+      (regexp-quote pattern)))
+
+  ;; Helix / Kakoune風の選択内マッチ（Meow公式 Beacon連携・Smart Case対応）
+  (defun my/meow-select-matches-in-region (pattern)
+    "選択範囲内（未選択時はバッファ全体）のPATTERNにマッチする箇所すべてをBeacon（マルチ選択）にする。
+スマートケース対応: 小文字のみなら大文字小文字を無視し、大文字を含めば厳密一致。"
+    (interactive "sMatch pattern: ")
+    (let ((in-region (use-region-p)))
+      (unless in-region
+        ;; 選択範囲がない場合はバッファ全体を対象にする
+        (set-mark (point-min))
+        (goto-char (point-max))
+        (activate-mark))
+      (when (and (use-region-p) (not (string-empty-p pattern)))
+      (let* ((case-fold (isearch-no-upper-case-p pattern t))
+             (smart-re (my/meow--smart-case-regexp pattern)))
+        ;; 1. 選択範囲をセカンダリセレクション(Grab)にする
+        (secondary-selection-from-region)
+        (meow--cancel-selection)
+        ;; 2. セカンダリセレクションの開始位置へ移動
+        (goto-char (overlay-start mouse-secondary-overlay))
+        ;; 3. 検索文字列（smart-re）をMeowの検索履歴に登録
+        (meow--push-search smart-re)
+        ;; 4. セカンダリセレクション内で最初のマッチを検索
+        (if (re-search-forward smart-re (overlay-end mouse-secondary-overlay) t)
+            (let ((m-beg (match-beginning 0))
+                  (m-end (match-end 0)))
+              ;; 最初のマッチを選択（type: visit）
+              (thread-first
+                (meow--make-selection '(select . visit) m-beg m-end)
+                (meow--select t))
+              ;; 5. BEACON stateに切り替えて、残りのマッチ箇所にオーバーレイを展開
+              (meow--switch-state 'beacon)
+              (meow--beacon-remove-overlays)
+              (save-restriction
+                (meow--narrow-secondary-selection)
+                (save-mark-and-excursion
+                  (goto-char (point-min))
+                  (while (re-search-forward smart-re nil t)
+                    (unless (and (= (match-beginning 0) m-beg)
+                                 (= (match-end 0) m-end))
+                      (meow--beacon-add-overlay-at-region
+                       '(select . visit)
+                       (match-beginning 0)
+                       (match-end 0)
+                       nil)))))
+              (setq meow--beacon-overlays (reverse meow--beacon-overlays))
+              (message "Beacon: %d 箇所マッチ [%s] (r: ミニバッファ置換, c: 手動入力, d: 削除, i: 挿入)"
+                       (1+ (length meow--beacon-overlays))
+                       (if case-fold "大文字小文字無視" "厳密一致")))
+          ;; マッチしなかった場合はGrabを解除
+          (meow--cancel-second-selection)
+          (message "No match for \"%s\" in selection" pattern))))))
+
+  ;; Helix風: ミニバッファ対話式の一括置換 (r)
+  (defun my/meow-replace (replacement)
+    "選択範囲（またはBeacon全マッチ箇所）をミニバッファ入力した文字列で置換する。
+空エンターの場合は直前のコピー内容（クリップボード）で置換する。"
+    (interactive
+     (let* ((clip (current-kill 0 t))
+            (prompt (if (and clip (not (string-empty-p clip)))
+                        (format "Replace with (Enter for \"%s\"): "
+                                (if (> (length clip) 15)
+                                    (concat (substring clip 0 15) "...")
+                                  clip))
+                      "Replace with: ")))
+       (list (read-string prompt nil nil clip))))
+    (let ((rep (if (string-empty-p replacement)
+                   (or (current-kill 0 t) "")
+                 replacement)))
+      (cond
+       ;; ケース1: Beacon状態（s でマッチした複数箇所）
+       ((bound-and-true-p meow-beacon-mode)
+        (meow--with-selection-fallback
+         (meow--wrap-collapse-undo
+          (let ((orig-beg (region-beginning))
+                (orig-end (region-end)))
+            (delete-region orig-beg orig-end)
+            (insert rep)
+            (save-mark-and-excursion
+              (cl-loop for ov in meow--beacon-overlays do
+                       (when (and (overlayp ov)
+                                  (not (eq 'cursor (overlay-get ov 'meow-beacon-type))))
+                         (goto-char (overlay-start ov))
+                         (delete-region (overlay-start ov) (overlay-end ov))
+                         (insert rep)
+                         (delete-overlay ov))))
+            (meow--beacon-remove-overlays)
+            (meow--cancel-second-selection)
+            (meow--switch-state 'normal)
+            (message "Replaced all matches with \"%s\"" rep)))))
+       ;; ケース2: 通常の選択範囲がある場合（x や w などで選択中）
+       ((use-region-p)
+        (let ((beg (region-beginning))
+              (end (region-end)))
+          (delete-region beg end)
+          (insert rep)
+          (meow--cancel-selection)
+          (message "Replaced with \"%s\"" rep)))
+       ;; ケース3: 選択がない場合（カーソル下の単語を自動選択して置換）
+       (t
+        (meow-mark-word 1)
+        (when (use-region-p)
+          (let ((beg (region-beginning))
+                (end (region-end)))
+            (delete-region beg end)
+            (insert rep)
+            (meow--cancel-selection)
+            (message "Replaced word with \"%s\"" rep)))))))
+
+  ;; 万能脱出: 選択解除およびBeacon（マルチカーソル）完全解除 (ESC)
+  (defun my/meow-cancel-selection ()
+    "選択を解除する。Beaconモード中であればBeaconも完全解除してNORMALに戻る。"
+    (interactive)
+    (if (bound-and-true-p meow-beacon-mode)
+        (progn
+          (meow--beacon-remove-overlays)
+          (meow--cancel-second-selection)
+          (meow--switch-state 'normal)
+          (message "Quit Beacon"))
+      (meow--cancel-second-selection)
+      (meow-cancel-selection)))
+
+  ;; Helix / Kakoune風: バッファ全体選択 (%)
+  (defun my/meow-select-whole-buffer ()
+    "バッファ全体を選択する（Helix / Kakoune の % 相当）。"
+    (interactive)
+    (thread-first
+      (meow--make-selection '(select . buffer) (point-min) (point-max))
+      (meow--select t)))
+
+  ;; Helix風: 選択行の各行カーソル分割 (C)
+  (defun my/meow-split-lines ()
+    "選択範囲を各行ごとのBeaconカーソルに分割する（Helixの C 相当）。"
+    (interactive)
+    (if (use-region-p)
+        (progn
+          (secondary-selection-from-region)
+          (meow--cancel-selection)
+          (meow--switch-state 'beacon)
+          (meow--add-beacons-for-char)
+          (message "Lines split: %d 行にカーソル配置 (i: 挿入, a: 追加, c: 置換, d: 削除)"
+                   (1+ (length meow--beacon-overlays))))
+      (message "複数行を選択してから C を押してください")))
+
+  ;; Helix / Kakoune風: 大文字・小文字トグル反転 (~)
+  (defun my/meow-toggle-case ()
+    "選択範囲（または1文字）の大文字・小文字を反転する（Helix / Kakoune の ~ 相当）。"
+    (interactive)
+    (if (use-region-p)
+        (let* ((beg (region-beginning))
+               (end (region-end))
+               (str (buffer-substring-no-properties beg end))
+               (toggled (mapconcat
+                         (lambda (c)
+                           (char-to-string
+                            (cond
+                             ((<= ?a c ?z) (upcase c))
+                             ((<= ?A c ?Z) (downcase c))
+                             (t c))))
+                         str "")))
+          (delete-region beg end)
+          (insert toggled)
+          (thread-first
+            (meow--make-selection '(select . transient) beg (point))
+            (meow--select t)))
+      (let ((c (char-after)))
+        (when c
+          (delete-char 1)
+          (insert-char
+           (cond
+            ((<= ?a c ?z) (upcase c))
+            ((<= ?A c ?Z) (downcase c))
+            (t c)))))))
+
+  ;; Helix風 Goto キーマップ (g プレフィックス)
+  (defvar my/meow-goto-keymap
+    (let ((map (make-sparse-keymap)))
+      (define-key map (kbd "g") (lambda () (interactive) (beginning-of-buffer)))
+      (define-key map (kbd "e") (lambda () (interactive) (end-of-buffer)))
+      (define-key map (kbd "h") (lambda () (interactive) (beginning-of-line)))
+      (define-key map (kbd "l") (lambda () (interactive) (end-of-line)))
+      (define-key map (kbd "i") (lambda () (interactive) (back-to-indentation)))
+      (define-key map (kbd "RET") #'goto-line)
+      (define-key map (kbd "<return>") #'goto-line)
+      map)
+    "Helix風 Goto キーマップ")
+
+  (defun my/meow-goto-dispatch (arg)
+    "Helix / Vim風のGotoディスパッチャ。
+- 数値前置時 (例: 50g): 50行目へ即座にダイレクトジャンプ
+- 単押し時: Helix風Gotoプレフィックス (gh:行頭, gl:行末, gg:先頭, ge:末尾, RET:指定行)"
+    (interactive "P")
+    (if arg
+        (goto-line (prefix-numeric-value arg))
+      (set-transient-map
+       my/meow-goto-keymap
+       nil
+       nil
+       "Goto: [g]先頭  [e]末尾  [h]行頭  [l]行末  [i]インデント  [RET]指定行")))
+
   (defun my/meow--register-p (register)
     "REGISTERが0-9のレジスタ指定として妥当な数値か判定する。"
     (and register (integerp register) (<= 0 register 9)))
@@ -4211,62 +5152,94 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
       (ignore-errors (deactivate-input-method)))
     (meow-insert-exit))
 
-  ;; 🌟 Meow 日本語キーバインドガイド (INSERT / 編集モード)
+  ;; Meow 日本語キーバインドガイド (INSERT / 編集モード)
   (defhydra hydra-meow-insert-help (:color blue :hint nil)
     "
   === EMACS 編集操作ガイド (INSERT時も有効) ===  [Tab] NORMALガイドへ
-  [モード切替]              [Windows / CUA 基本]      [カーソル移動・選択]
-  ESC : NORMAL復帰 (IME OFF)  C-c / C-x : コピー / 切取   C-e : 行末/インデント/行頭
-                              C-v / C-z : 貼付 / Undo   Shift+矢印 : 範囲選択
-  [強力な編集支援]            C-y : やり直し (Redo)     Alt+ドラッグ : 矩形選択
-  C-t : 自動繰返し (dmacro)   M-z : Undo履歴ツリー      C-RET : 矩形選択開始
-  C-h : リアルタイム置換      C-s : 上書き保存
-  M-％ : スマート置換         C-a : 全選択/解除トグル   [補完・検索]
-  C-> : 次の同単語にカーソル  C-w : バッファ閉じる      Tab : 補完決定 (Corfu)
-  C-< : 前の同単語にカーソル                            C-f : 検索 (Migemo)
-  C-c = : その場数式計算      F1 / C-c ? : このガイド   F3 / S-F3 : 次/前を検索
+  [モード切替 / 日本語]     [Windows / CUA 基本]      [カーソル移動・選択]
+  ESC : NORMAL復帰 (IME OFF)  C-c / C-x : コピー / 切取 (M-0〜9可)  C-e : 行末/インデント/行頭
+  C-\\ : Mozc ON/OFF (日本語) C-v / C-z : 貼付 (M-0〜9可) / Undo    Shift+矢印 : 範囲選択
+  [削除・編集]                C-y : やり直し (Redo)     Alt+ドラッグ : 矩形選択
+  C-d : 1文字削除 (右削除)    M-z : Undo履歴ツリー      C-RET : 矩形選択開始
+  C-k : 行末まで削除 (キル)   C-s : 上書き保存
+  C-t : 自動繰返し (dmacro)   C-a : 全選択/解除トグル   [補完・検索]
+  C-h : リアルタイム置換      C-w : バッファ閉じる      Tab : 補完決定 (Corfu)
+  M-％ : スマート置換         C-q / Alt+F4: 終了        C-f : 検索 (Migemo)
+  C-> / C-< : 同単語ジャンプ  F1 / C-c ? : このガイド   F3 / S-F3 : 次/前を検索
   ----------------------------------------------------------------------
-  [Tab / n] NORMALへ   [C-]] 強制脱出 (非常口)   [H] 標準ヘルプ   [q / ESC] 閉じる
+  [ファンクションキー早見表]
+  F1: このガイド   F2: バッファ切替 (Consult)   F3: 検索 (Migemo)   F4: 目次サイドバー
+  F5: 更新 (確認)  F6: 電卓 (Calc)  F7: howm (S-F7:検索)  F8: カレンダー (S-F8:天気)
+  ----------------------------------------------------------------------
+  [Tab / n] NORMALへ   [C-]] 強制脱出 (非常口)   [H] 標準ヘルプ   [q / ESC / F1] 閉じる
 "
     ("<tab>" (if (fboundp 'hydra-meow-help/body) (hydra-meow-help/body)) :color blue)
     ("TAB" (if (fboundp 'hydra-meow-help/body) (hydra-meow-help/body)) :color blue)
     ("n" (if (fboundp 'hydra-meow-help/body) (hydra-meow-help/body)) :color blue)
     ("H" (call-interactively #'help-command) :color blue)
     ("q" nil :color blue)
-    ("<escape>" nil :color blue))
+    ("<escape>" nil :color blue)
+    ("<f1>" nil :color blue)
+    ("<F1>" nil :color blue))
 
-  ;; 🌟 Meow 日本語キーバインドガイド (NORMAL モード)
+  ;; Meow 日本語キーバインドガイド (NORMAL モード)
   (defhydra hydra-meow-help (:color blue :hint nil)
     "
   === MEOW 操作ガイド: NORMAL モード ===  [Tab] INSERTガイドへ
-  [移動]                    [選択 (マーク)]           [編集 / 挿入]
-  h / j / k / l : 左 下 上 右  w : 単語を選択           i : カーソル位置で入力 (INSERT)
-  b / e         : 単語移動    x : 1行を選択 (連打で拡張) a : カーソル直後で入力 (INSERT)
-  < / >         : 先頭 / 末尾 c : 選択を消して入力     I : 上に空行を開いて入力
-  f / t         : 文字へ移動  d : 選択(文字)を削除     A : 下に空行を開いて入力
+  [移動 / Goto (Helix)]      [選択 (マーク)]           [編集 / 挿入]
+  h / j / k / l : 左 下 上 右  w / W : 単語 / 変数全体  i / a : 入力 (カーソル / 直後)
+  b / e         : 単語移動    x / X : 行選択 / 上へ    A / I : 下 / 上に行を開いて入力
+  g g / g e     : 先頭 / 末尾 ％    : バッファ全体選択  c     : 選択を消して入力
+  g h / g l     : 行頭 / 行末 s     : 選択内マッチ     r     : ミニバッファ置換 (Helix風)
+  50g / g RET   : 指定行移動  C     : 選択を行分割     m     : 複数行を1行に結合 (Join)
+  f / t <文字>  : 文字へ移動  ESC   : 選択解除         ~     : 大文字/小文字反転 (Helix)
   ----------------------------------------------------------------------
-  [検索 / 反転]             [Puni 構造編集]          [コピー / 貼り付け]
+  [おすすめ編集フロー (必修)]
+  ① x (行選択) または ％ (全選択) → s (検索語) → r (置換後入力してEnterで一括置換！)
+  ② x (行選択) → C (行分割) → i または a で各行に一括入力 → ESC
+  ③ ) (括弧内) → c で中身書換 / ( (括弧込) → d で丸ごと削除
+  ----------------------------------------------------------------------
+  [検索 / 移動]             [括弧 / Puni 構造編集]   [コピー / 貼付 / レジスタ]
   / / ?   : 検索 / 逆方向   ( : 式全体を選択(括弧込)   y : コピー (M-0〜9でレジスタ可)
-  n / N   : 次 / 前の一致   ) : 式の中身だけを選択     s : 切り取り (M-0〜9でレジスタ可)
-  - n     : 逆検索 (Meow)   SPC p ( : 選択を( )で包む  p : 貼り付け (クリップボード互換)
-  ;       : 選択方向を反転  SPC p s : 囲み括弧を外す   u : 元に戻す (Undo)
-  g / ESC : 選択解除
+  n / N   : 次 / 前の一致   ) : 式の中身だけを選択     d : 切り取り (C-x / M-0〜9可)
+  - n     : 逆検索 (Meow)   o : ブロック(連打で親へ)   p : 貼り付け (C-v互換)
+  ;       : 選択方向を反転  SPC p ( : 選択を( )で包む  u : 元に戻す (Undo)
+                            SPC p s : 囲み括弧を外す   C-d: 1文字削除  C-k: 行末削除
+                            SPC b   : ブックマーク一覧 C-\\ : Mozc ON/OFF (日本語)
   ----------------------------------------------------------------------
-  [Tab / i] INSERTへ   [C-]] 強制脱出 (非常口)   [H] 標準ヘルプ   [q / ESC] 閉じる
+  [ファンクションキー早見表]
+  F1: このガイド   F2: バッファ切替 (Consult)   F3: 検索 (Migemo)   F4: 目次サイドバー
+  F5: 更新 (確認)  F6: 電卓 (Calc)  F7: howm (S-F7:検索)  F8: カレンダー (S-F8:天気)
+  ----------------------------------------------------------------------
+  [Grab: テキスト入替の神機能]
+  G : 選択をキープ (Grab)  → 別の場所を選択して R で瞬時に入替え！ (Y: 上書き)
+  ----------------------------------------------------------------------
+  [大文字(Shift)の法則]
+  H/J/K/L : 選択を伸ばす (拡張)  W/E/B : 変数全体 (シンボル)  N / X : 逆方向 (- と同じ)
+  ----------------------------------------------------------------------
+  [Tab / i] INSERTへ   [C-w] 閉じる   [C-q / Alt+F4] Emacs終了   [q / ESC / F1] 閉じる
 "
     ("<tab>" hydra-meow-insert-help/body :color blue)
     ("TAB" hydra-meow-insert-help/body :color blue)
     ("i" hydra-meow-insert-help/body :color blue)
     ("H" (call-interactively #'help-command) :color blue)
     ("q" nil :color blue)
-    ("<escape>" nil :color blue))
+    ("<escape>" nil :color blue)
+    ("<f1>" nil :color blue)
+    ("<F1>" nil :color blue))
 
-  ;; 🌟 F1 スマートヘルプ：現在のモード（NORMAL / INSERT）に応じて適切なガイドを表示
+  ;; F1 スマートヘルプ：現在のバッファ・モードに応じて最適なガイドを自動表示
   (defun my/smart-help ()
-    "現在のモード（NORMAL / INSERT）に応じて適切な操作ガイドを表示する。
-Meow 未ロード時は通常の Emacs ヘルプを開く。"
+    "現在のモード（カレンダー / EWW / nov.el / Meow INSERT / Meow NORMAL）に応じて最適な操作ガイドを表示する。
+特殊モード以外でMeow未ロード時は通常の Emacs ヘルプを開く。"
     (interactive)
     (cond
+     ((and (derived-mode-p 'calfw-calendar-mode 'cfw:calendar-mode) (fboundp 'hydra-calfw-help/body))
+      (hydra-calfw-help/body))
+     ((and (derived-mode-p 'eww-mode) (fboundp 'hydra-eww-help/body))
+      (hydra-eww-help/body))
+     ((and (derived-mode-p 'nov-mode) (fboundp 'hydra-nov-help/body))
+      (hydra-nov-help/body))
      ((bound-and-true-p meow-insert-mode)
       (hydra-meow-insert-help/body))
      ((bound-and-true-p meow-mode)
@@ -4304,6 +5277,7 @@ Meow 未ロード時は通常の Emacs ヘルプを開く。"
 
     ;; リーダーキー（SPC）経由のコマンド
     (meow-leader-define-key
+     '("b" . consult-bookmark)
      '("j" . "H-j")
      '("k" . "H-k")
      '("1" . meow-digit-argument)
@@ -4339,17 +5313,20 @@ Meow 未ロード時は通常の Emacs ヘルプを開く。"
      '("]" . meow-end-of-thing)
      '("<" . beginning-of-buffer)
      '(">" . end-of-buffer)
+     '("%" . my/meow-select-whole-buffer)
+     '("~" . my/meow-toggle-case)
      '("a" . meow-append)
      '("A" . meow-open-below)
      '("b" . meow-back-word)
      '("B" . meow-back-symbol)
      '("c" . meow-change)
-     '("d" . meow-delete)
+     '("C" . my/meow-split-lines)
+     '("d" . my/meow-cut)
      '("D" . meow-backward-delete)
      '("e" . meow-next-word)
      '("E" . meow-next-symbol)
      '("f" . meow-find)
-     '("g" . meow-cancel-selection)
+     '("g" . my/meow-goto-dispatch)
      '("G" . meow-grab)
      '("h" . meow-left)
      '("H" . meow-left-expand)
@@ -4369,9 +5346,9 @@ Meow 未ロード時は通常の Emacs ヘルプを開く。"
      '("p" . my/meow-paste)
      '("q" . meow-quit)
      '("Q" . meow-quit)             ; 誤爆防止: Shift+q でも安全にキャンセル
-     '("r" . meow-replace)
+     '("r" . my/meow-replace)
      '("R" . meow-swap-grab)
-     '("s" . my/meow-cut)
+     '("s" . my/meow-select-matches-in-region)
      '("t" . meow-till)
      '("u" . meow-undo)
      '("U" . meow-undo-in-selection)
@@ -4389,8 +5366,7 @@ Meow 未ロード時は通常の Emacs ヘルプを開く。"
      '("'" . repeat)
      ;; 既定は選択キャンセルが "g" だが、CUA/Windows的にESCで
      ;; 選択解除できる方が直感的なため上書きする
-     ;; (「長年のブロック…」記事群での指摘を踏まえた変更)
-     '("<escape>" . meow-cancel-selection)))
+     '("<escape>" . my/meow-cancel-selection)))
 
   (my/meow-setup)
 
@@ -4406,6 +5382,10 @@ Meow 未ロード時は通常の Emacs ヘルプを開く。"
     (meow-define-keys 'insert
     '("<escape>" . my/meow-insert-exit)
     '("C-c ?" . hydra-meow-insert-help/body))
+    (with-eval-after-load 'meow-beacon
+      (define-key meow-beacon-state-keymap (kbd "r") #'my/meow-replace)
+      (define-key meow-beacon-state-keymap (kbd "<escape>") #'my/meow-cancel-selection)
+      (define-key meow-beacon-state-keymap (kbd "q") #'my/meow-cancel-selection))
 
   ;; --- kbdシミュレーション対象キーの補正 ---
   ;; Meowの一部コマンド(移動・貼り付け等)は「指定したキーを押した体で
@@ -4429,11 +5409,28 @@ Meow 未ロード時は通常の Emacs ヘルプを開く。"
   (setq meow--kbd-forward-char "<right>")
   (setq meow--kbd-yank "C-v")
 
-  ;; --- ターミナルバッファの初期状態を INSERT に設定 ---
-  ;; conpty / term では起動直後からそのままコマンドを打てるようにする。
-  ;; 出力ログの閲覧やコピーをしたい時だけ ESC で NORMAL に切り替える。
-  (add-to-list 'meow-mode-state-list '(conpty-mode . insert))
-  (add-to-list 'meow-mode-state-list '(term-mode . insert))
+  ;; Meowのコピー・キル操作をWindowsクリップボードと完全同期
+  ;; （Alt+0〜9 のレジスタ操作は独立したまま安全に保持されます）
+  (setq meow-use-clipboard t)
+
+  ;; NORMALモードでの選択範囲をさらに分かりやすくする設定
+  ;; 選択方向（カーソル側3文字）にグラデーションをかけて端点と方向を明示
+  (setq meow-use-enhanced-selection-effect t)
+  ;; 選択中カーソルを太くして視認性を確保
+  (setq meow-cursor-type-region-cursor '(bar . 3))
+
+  ;; --- 通常バッファ・ターミナルの初期状態を INSERT に設定 ---
+  ;; 通常のテキストエディタ同様に開いてすぐ入力（INSERT）できるようにし、
+  ;; 高度な編集・選択（x→s→r やマルチカーソル等）を行いたい時だけ ESC で NORMAL に切り替える。
+  ;; （※ Dired や Help 等の閲覧専用バッファは自動判定で motion が維持されます）
+  (setq meow-mode-state-list
+        '((conf-mode . insert)
+          (fundamental-mode . insert)
+          (help-mode . motion)
+          (prog-mode . insert)
+          (text-mode . insert)
+          (conpty-mode . insert)
+          (term-mode . insert)))
 
   ;; モードラインにMeowの状態表示（<N>/<I>/<M>等）を追加する。
   ;; 5節で mode-line-format を独自リストに差し替えているため、
@@ -4629,6 +5626,58 @@ Meow 未ロード時は通常の Emacs ヘルプを開く。"
 (defalias 'web-search #'my/consult-web-search)
 (defalias 'eww-search #'my/consult-web-search)
 
+;; エディタ連携: カーソル下の単語または選択範囲で即座に EWW 検索
+(defun my/eww-search-at-point ()
+  "カーソル下の単語（または選択範囲）を初期値にして EWW で Web 検索する。"
+  (interactive)
+  (let* ((initial (if (use-region-p)
+                      (buffer-substring-no-properties (region-beginning) (region-end))
+                    (thing-at-point 'symbol t)))
+         (query (read-string (format "Web検索 (EWW)%s: "
+                                     (if initial (format " [既定: %s]" initial) ""))
+                             nil nil initial)))
+    (when (and query (not (string-blank-p query)))
+      (eww (format "%s%s" eww-search-prefix (url-hexify-string query))))))
+
+;; Markdownリンクコピー (w / y)
+(defun my/eww-copy-markdown-link (&optional raw-url)
+  "現在のページのタイトルとURLを [タイトル](URL) 形式でクリップボードにコピーする。
+C-u を前置した場合は URL のみをコピーする。"
+  (interactive "P")
+  (let* ((url (eww-current-url))
+         (title (or (plist-get eww-data :title) (buffer-name)))
+         (clean-title (string-trim (replace-regexp-in-string "[\r\n]+" " " title)))
+         (text (if raw-url url (format "[%s](%s)" clean-title url))))
+    (when url
+      (kill-new text)
+      (message "Copied: %s" text))))
+
+;; ページごとの自動タブ化 (Centaur Tabs連携)
+(defun my/eww-rename-buffer-by-title ()
+  "EWWのレンダリング完了後、バッファ名をページタイトルに合わせて自動リネームする。"
+  (let ((title (plist-get eww-data :title)))
+    (when (and title (not (string-blank-p title)))
+      (let* ((clean (string-trim (replace-regexp-in-string "[\r\n]+" " " title)))
+             (short (if (> (length clean) 25) (concat (substring clean 0 25) "…") clean)))
+        (rename-buffer (format "*eww: %s*" short) t)))))
+(add-hook 'eww-after-render-hook #'my/eww-rename-buffer-by-title)
+
+;; リンクを新しいタブ（別バッファ）で開く (M-Enter)
+(defun my/eww-open-in-new-tab ()
+  "カーソル下のリンクを新しいEWWバッファ（タブ）で開く。"
+  (interactive)
+  (let ((url (get-text-property (point) 'shr-url)))
+    (if url
+        (let ((eww-buffer (generate-new-buffer "*eww*")))
+          (with-current-buffer eww-buffer
+            (eww-mode)
+            (eww url))
+          (pop-to-buffer eww-buffer))
+      (message "カーソル位置にリンクがありません"))))
+
+;; 外部ブラウザ（Windows既定ブラウザ: Chrome/Edge）への確実な連携 (&)
+(setq browse-url-browser-function #'browse-url-default-windows-browser)
+
 ;; 5. EWW 見出し目次機能 (imenu / consult-imenu 連携)
 ;;    'o' キーまたは M-g i で記事内の全目次をミニバッファから一覧・ジャンプ
 (defun my/eww-imenu-index ()
@@ -4659,61 +5708,102 @@ Meow 未ロード時は通常の Emacs ヘルプを開く。"
       (consult-imenu)
     (call-interactively #'imenu)))
 
+;; EWW 閲覧履歴の Consult 検索 (H)
+(defun my/consult-eww-history ()
+  "現在のEWWタブの閲覧履歴を Consult / Vertico でインクリメンタル検索してジャンプ。"
+  (interactive)
+  (let* ((history (if (bound-and-true-p eww-history) eww-history nil))
+         (candidates
+          (cl-loop for item in history
+                   for title = (or (plist-get item :title) (plist-get item :url) "No title")
+                   for url = (or (plist-get item :url) "")
+                   collect (cons (format "%-45s  %s"
+                                         (if (> (length title) 43)
+                                             (concat (substring title 0 43) "…")
+                                           title)
+                                         url)
+                                 item))))
+    (if (null candidates)
+        (message "EWW の閲覧履歴はありません")
+      (let ((selected (consult--read candidates
+                                     :prompt "EWW 閲覧履歴: "
+                                     :sort nil
+                                     :require-match t)))
+        (when selected
+          (eww-restore-history selected))))))
+
+;; EWW ブックマークの Consult 検索 (B)
+(defun my/consult-eww-bookmarks ()
+  "EWW ブックマークを Consult / Vertico でインクリメンタル検索して開く。"
+  (interactive)
+  (eww-read-bookmarks)
+  (if (null eww-bookmarks)
+      (message "EWW ブックマークはありません (b で現在のページを追加)")
+    (let* ((candidates
+            (cl-loop for item in eww-bookmarks
+                     for title = (or (plist-get item :title) (plist-get item :url) "No title")
+                     for url = (or (plist-get item :url) "")
+                     collect (cons (format "%-45s  %s"
+                                           (if (> (length title) 43)
+                                               (concat (substring title 0 43) "…")
+                                             title)
+                                           url)
+                                   url)))
+           (selected (consult--read candidates
+                                    :prompt "EWW ブックマーク: "
+                                    :sort nil
+                                    :require-match t)))
+      (when selected
+        (eww selected)))))
+
+;; EWW 操作ガイド (F1 / ?)
+(defhydra hydra-eww-help (:color blue :hint nil)
+  "
+  === EWW Webブラウザ 操作ガイド ===  [F1 / q] 閉じる
+  [ページ移動]              [リンク操作]              [表示・読書モード]
+  l / Backspace : 戻る      Tab / S-Tab : 次 / 前のリンク R     : 本文だけ抽出 (リーダー)
+  r             : 進む      Enter       : リンクを開く    i     : 画像表示 ON/OFF
+  g             : 再読込み  M-Enter     : 新しいタブで開く C     : 配色 (Web色/テーマ色)
+  [検索・履歴・ブックマーク] [コピー・外部連携]        [タブ・ファイル]
+  o   : 目次 (Consult)      w / y : Markdownリンクコピー  S   : EWWバッファ一覧
+  H   : 閲覧履歴 (Consult)  &     : 外部ブラウザで開く    C-w : タブを閉じる
+  B   : ブックマーク一覧    b     : 現在ページを保存      d   : ダウンロード
+  F4  : 目次サイドバー      f     : ページ内検索
+  ----------------------------------------------------------------------
+"
+  ("l" eww-back-url :color blue)
+  ("<backspace>" eww-back-url :color blue)
+  ("r" eww-forward-url :color blue)
+  ("g" eww-reload :color blue)
+  ("R" eww-readable :color blue)
+  ("i" eww-toggle-images :color blue)
+  ("C" eww-toggle-colors :color blue)
+  ("o" my/eww-jump-to-heading :color blue)
+  ("H" my/consult-eww-history :color blue)
+  ("B" my/consult-eww-bookmarks :color blue)
+  ("b" eww-add-bookmark :color blue)
+  ("<f4>" (lambda () (interactive) (if (fboundp 'imenu-list-smart-toggle) (imenu-list-smart-toggle) (speedbar-get-focus))) :color blue)
+  ("f" isearch-forward :color blue)
+  ("w" my/eww-copy-markdown-link :color blue)
+  ("y" my/eww-copy-markdown-link :color blue)
+  ("&" eww-browse-with-external-browser :color blue)
+  ("d" eww-download :color blue)
+  ("S" eww-list-buffers :color blue)
+  ("q" nil :color blue)
+  ("<escape>" nil :color blue)
+  ("<f1>" nil :color blue)
+  ("<F1>" nil :color blue))
+
 (with-eval-after-load 'eww
-  (define-key eww-mode-map (kbd "o") #'my/eww-jump-to-heading))
-
-;; 6. Wikipedia 専用ブラウザ環境 (リアルタイム候補補完 ＆ 爆速閲覧 ＆ 専用バッファ)
-;;    M-x wikipedia または C-c w で候補から選んで即座に閲覧可能
-(defun my/wikipedia-fetch-suggestions (query)
-  "Wikipedia OpenSearch API から検索候補のリストを取得する。"
-  (when (and query (not (string-blank-p query)))
-    (let* ((url (format "https://ja.wikipedia.org/w/api.php?action=opensearch&format=json&limit=20&search=%s"
-                        (url-hexify-string query)))
-           (output (with-temp-buffer
-                     (call-process (or (executable-find "curl") "C:/Windows/System32/curl.exe")
-                                   nil t nil "--ssl-no-revoke" "-s" url)
-                     (buffer-string)))
-           (json-array-type 'list)
-           (data (ignore-errors (json-read-from-string output))))
-      (if (and data (listp (cadr data)))
-          (cadr data)
-        nil))))
-
-(defun my/wikipedia-completion-table (string pred action)
-  "Vertico/ミニバッファ用の動的補完テーブル。"
-  (if (eq action 'metadata)
-      '(metadata (display-sort-function . identity)
-                 (cycle-sort-function . identity))
-    (let ((cands (my/wikipedia-fetch-suggestions string)))
-      (complete-with-action action cands string pred))))
-
-(defun my/wikipedia (&optional query)
-  "Wikipediaを専用バッファ (*Wikipedia*) で快適に閲覧します。
-ミニバッファでキーワードを入力するとリアルタイムに候補記事が表示されます。
-カーソル下の単語または選択範囲があれば初期入力値としてセットされます。"
-  (interactive
-   (let* ((default-word (if (use-region-p)
-                            (buffer-substring-no-properties (region-beginning) (region-end))
-                          (thing-at-point 'word t)))
-          (prompt (if default-word
-                      (format "Wikipedia (default %s): " default-word)
-                    "Wikipedia: "))
-          (input (completing-read prompt #'my/wikipedia-completion-table
-                                  nil nil nil nil default-word)))
-     (list (if (string-blank-p input) default-word input))))
-  (when (and query (not (string-blank-p query)))
-    (let* ((target-url (format "https://ja.m.wikipedia.org/wiki/%s"
-                               (url-hexify-string query)))
-           (buf (get-buffer-create "*Wikipedia*")))
-      ;; 専用バッファを用意してEWWで開く
-      (with-current-buffer buf
-        (unless (eq major-mode 'eww-mode)
-          (eww-mode)))
-      (pop-to-buffer-same-window buf)
-      (eww target-url))))
-
-(defalias 'wikipedia #'my/wikipedia)
-(global-set-key (kbd "C-c w") #'my/wikipedia)
+  (define-key eww-mode-map (kbd "o") #'my/eww-jump-to-heading)
+  (define-key eww-mode-map (kbd "w") #'my/eww-copy-markdown-link)
+  (define-key eww-mode-map (kbd "y") #'my/eww-copy-markdown-link)
+  (define-key eww-mode-map (kbd "H") #'my/consult-eww-history)
+  (define-key eww-mode-map (kbd "B") #'my/consult-eww-bookmarks)
+  (define-key eww-mode-map (kbd "b") #'eww-add-bookmark)
+  (define-key eww-mode-map (kbd "M-RET") #'my/eww-open-in-new-tab)
+  (define-key eww-mode-map (kbd "M-<return>") #'my/eww-open-in-new-tab)
+  (define-key eww-mode-map (kbd "?") (lambda () (interactive) (if (fboundp 'hydra-eww-help/body) (hydra-eww-help/body) (describe-mode)))))
 
 
 ;; =====================================================================
@@ -4727,14 +5817,104 @@ Meow 未ロード時は通常の Emacs ヘルプを開く。"
 (setq custom-safe-themes t)
 (advice-add 'custom-theme-load-confirm :override (lambda (&rest _) t))
 
-;; ダークテーマでの視認性向上（選択範囲とカーソルの黒塗り解消）
+;; どの配色・テーマでも選択範囲とカーソルを確実に見やすくする動的設定
 (defun my/apply-cursor-region-faces (&rest _)
-  (set-face-attribute 'region nil :background "#3a5f8b" :foreground 'unspecified)
-  (set-face-attribute 'cursor nil :background "#e0af68"))
+  "テーマの明暗を自動判定し、どの配色でも文字が埋もれない選択色を設定する。"
+  (require 'color)
+  (let* ((bg (face-background 'default nil t))
+         (dark-p (or (eq (frame-parameter nil 'background-mode) 'dark)
+                     (if (and bg (color-defined-p bg))
+                         (let ((rgb (color-name-to-rgb bg)))
+                           (< (+ (* (nth 0 rgb) 0.299)
+                                 (* (nth 1 rgb) 0.587)
+                                 (* (nth 2 rgb) 0.114))
+                              0.5))
+                       t))))
+    (if dark-p
+        ;; ダークテーマ: 視認性の高いネイビー背景 ＋ 白文字統一（どんな文字色でも確実に読める）
+        (progn
+          (set-face-attribute 'region nil
+                              :background "#264f78"
+                              :foreground "#ffffff"
+                              :distant-foreground "#ffffff"
+                              :extend t)
+          ;; 複数マッチのBeacon選択（カレント以外の全マッチ箇所）を白文字＋鮮やかな青＋枠線でくっきり表示
+          (set-face-attribute 'meow-beacon-fake-selection nil
+                              :background "#3d59a1"
+                              :foreground "#ffffff"
+                              :distant-foreground "#ffffff"
+                              :box '(:line-width (1 . 1) :color "#7aa2f7")
+                              :extend nil)
+          ;; 元の選択範囲全体（セカンダリセレクション）は控えめにしてマッチ箇所を邪魔しない
+          (set-face-attribute 'secondary-selection nil
+                              :background "#1a1e2e"
+                              :foreground nil
+                              :extend t)
+          (set-face-attribute 'cursor nil :background "#e0af68"))
+      ;; ライトテーマ: スカイブルー背景 ＋ 濃紺文字統一
+      (progn
+        (set-face-attribute 'region nil
+                            :background "#b4d8fd"
+                            :foreground "#002b55"
+                            :distant-foreground "#000000"
+                            :extend t)
+        ;; 複数マッチのBeacon選択（ライトテーマ用）
+        (set-face-attribute 'meow-beacon-fake-selection nil
+                            :background "#a4cbfd"
+                            :foreground "#002b55"
+                            :distant-foreground "#000000"
+                            :box '(:line-width (1 . 1) :color "#005fb8")
+                            :extend nil)
+        ;; 元の選択範囲全体（ライトテーマ用）
+        (set-face-attribute 'secondary-selection nil
+                            :background "#f0f4fc"
+                            :foreground nil
+                            :extend t)
+        (set-face-attribute 'cursor nil :background "#005fb8")))))
 (my/apply-cursor-region-faces)
 (if (boundp 'enable-theme-functions)
     (add-hook 'enable-theme-functions #'my/apply-cursor-region-faces)
   (advice-add 'load-theme :after #'my/apply-cursor-region-faces))
 
 
+;; =====================================================================
+;; 日本の祝日設定 (japanese-holidays)
+;; =====================================================================
+(with-eval-after-load 'calendar
+  (when (require 'japanese-holidays nil t)
+    (setq calendar-holidays
+          (append japanese-holidays
+                  holiday-local-holidays
+                  holiday-other-holidays))
+    (setq calendar-mark-holidays-flag t)
+    ;; 土日・祝日の色分け表示（土曜:水色 / 日曜・祝日:赤色）
+    (setq japanese-holiday-weekend '(0 6)
+          japanese-holiday-weekend-marker
+          '(holiday nil nil nil nil nil japanese-holiday-saturday))
+    (add-hook 'calendar-today-visible-hook #'japanese-holiday-mark-weekend)
+    (add-hook 'calendar-today-invisible-hook #'japanese-holiday-mark-weekend)
+    (add-hook 'calendar-today-visible-hook #'calendar-mark-today)))
+
+
+;; =====================================================================
+;; プロジェクト管理の拡張 (project.el) ＆ キーヘルプ
+;; =====================================================================
+;; 1. .git がないフォルダでも「.project」を置くだけでプロジェクトルートとして自動認識
+(with-eval-after-load 'project
+  (setq project-vc-extra-root-markers '(".project" ".git")))
+
+;; 2. プロジェクト操作専用キーバインド (C-c C-p)
+;; ※ C-c p は Meow のリーダーキー SPC p と衝突するため C-c C-p に割り当て
+(define-key mode-specific-map (kbd "p") nil)
+(global-set-key (kbd "C-c C-p") #'hydra-project/body)
+
+;; 3. which-key に標準の C-x p の日本語ガイドを追加
+(with-eval-after-load 'which-key
+  (which-key-add-key-based-replacements
+    "C-x p"   "プロジェクト操作"
+    "C-x p f" "プロジェクト内ファイル検索"
+    "C-x p p" "別プロジェクト切り替え"
+    "C-x p d" "ルートフォルダを開く (Dired)"
+    "C-x p b" "プロジェクト内バッファ切り替え"
+    "C-x p k" "プロジェクトの全バッファを閉じる"))
 
