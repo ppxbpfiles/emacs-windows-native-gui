@@ -12,7 +12,8 @@
 | `C-s` | 上書き保存 |
 | `C-a` | 全選択 |
 | `C-o` | ファイルを開く（Windows ダイアログ） |
-| `C-w` | バッファを閉じる |
+| `C-w` | バッファ（ファイル）を閉じる |
+| `Alt+F4` / `C-x C-c` | Emacs を終了する |
 | `M-z` | Undo履歴をツリー表示（vundo） |
 
 ---
@@ -79,6 +80,11 @@ NORMAL/INSERT/MOTION等の状態を持つモーダル編集レイヤー。CUAの
 |---|---|
 | `<backspace>` | 構造を壊さない削除（puni-backward-delete-char） |
 | `<escape>` | NORMALに戻る（同時にIMEも自動OFF） |
+| `C-\` | mozc（日本語入力）ON / OFF 切り替え |
+
+> [!TIP]
+> `mozc-modeless` は Windows Terminal 等の `-nw`（ターミナル）環境とも相性が良く、OS の IME 制約を受けずに `Ctrl+\` で手軽に日本語入力を切り替えられます。
+> （※ mozc-modeless を使う場合は本家「Google 日本語入力」のインストールが必要ですが、Windows の常用 IME に設定しておく必要はありません）
 
 ---
 
