@@ -22,6 +22,28 @@
       (list (expand-file-name ".authinfo" user-emacs-directory)
             (expand-file-name ".authinfo.gpg" user-emacs-directory)))
 
+;; ── GnuPG / EasyPG (EPA) 設定 ──
+;; Git for Windows 付属の gpg.exe を自動検出して設定
+(let ((git-gpg-candidates
+       (list
+        "C:/Program Files/Git/usr/bin/gpg.exe"
+        "C:/Program Files (x86)/Git/usr/bin/gpg.exe"
+        (and (getenv "LOCALAPPDATA") (expand-file-name "Programs/Git/usr/bin/gpg.exe" (getenv "LOCALAPPDATA")))
+        (and (getenv "USERPROFILE") (expand-file-name "scoop/apps/git/current/usr/bin/gpg.exe" (getenv "USERPROFILE"))))))
+  (unless (executable-find "gpg")
+    (catch 'found
+      (dolist (p git-gpg-candidates)
+        (when (and p (file-exists-p p))
+          (setq epg-gpg-program p)
+          (throw 'found t))))))
+
+;; EasyPG の有効化
+(require 'epa-file)
+(epa-file-enable)
+
+;; パスフレーズを Emacs のミニバッファ内で直接入力可能にする（Windowsでのフリーズ防止）
+(setq epg-pinentry-mode 'loopback)
+
 ;; M-x customize の設定を専用ファイルに分離（init.el への自動書き込みを防止）
 ;; これにより custom-set-variables / custom-set-faces は custom.el に書かれる
 ;; （※実際のロード処理は、パッケージ初期化後の競合を防ぐため init.el の末尾で行います）
@@ -85,6 +107,20 @@ USB側に残っている前回の状態を引き継ぐためのものです。"
       (make-directory (file-name-directory local-file) t)
       (copy-file usb-file local-file t))))
 
+;; ── キャッシュ・履歴・一時ファイルを .cache/ に集約 ──
+(let ((cache-dir (expand-file-name ".cache/" user-emacs-directory)))
+  (unless (file-directory-p cache-dir)
+    (make-directory cache-dir t))
+  (setq project-list-file           (expand-file-name "projects" cache-dir)
+        tramp-persistency-file-name (expand-file-name "tramp" cache-dir)
+        nov-save-place-file         (expand-file-name "nov-places" cache-dir)
+        eww-bookmarks-directory     cache-dir
+        mc/list-file                (expand-file-name ".mc-lists.el" cache-dir)
+        auto-save-list-file-prefix  (expand-file-name "auto-save-list/.saves-" cache-dir)
+        transient-levels-file       (expand-file-name "transient/levels.el" cache-dir)
+        transient-values-file       (expand-file-name "transient/values.el" cache-dir)
+        transient-history-file      (expand-file-name "transient/history.el" cache-dir)
+        url-configuration-directory (expand-file-name "url/" cache-dir)))
 
 ;; =====================================================================
 ;; 1. 起動・基本動作
@@ -222,6 +258,9 @@ USB側に残っている前回の状態を引き継ぐためのものです。"
            (not (verify-visited-file-modtime (current-buffer))))
       (let ((cur-modtime (file-attribute-modification-time (file-attributes buffer-file-name))))
         (cond
+         ;; 現在アクティブなバッファでない場合は確認を出さずに保留（裏のタブにある間は邪魔しない）
+         ((not (eq (current-buffer) (window-buffer (selected-window))))
+          nil)
          ;; すでに拒否したタイムスタンプと同じなら、次の変更まで沈黙
          ((and my/auto-revert-declined-modtime
                (equal cur-modtime my/auto-revert-declined-modtime))
@@ -243,6 +282,16 @@ USB側に残っている前回の状態を引き継ぐためのものです。"
     (apply orig-fun args)))
 
 (advice-add 'auto-revert-handler :around #'my/auto-revert-handler-around)
+
+;; タブやウィンドウを切り替えた瞬間に、外部変更があれば即座にチェック
+(defun my/auto-revert-check-on-switch (&optional _)
+  "バッファ切り替え時に、現在のバッファが外部変更されていれば即座にチェックする。"
+  (when (and (bound-and-true-p auto-revert-mode)
+             buffer-file-name
+             (file-exists-p buffer-file-name)
+             (not (verify-visited-file-modtime (current-buffer))))
+    (auto-revert-handler)))
+(add-hook 'window-selection-change-functions #'my/auto-revert-check-on-switch)
 
 ;; 外部でのファイル変更を自動検知して反映
 (global-auto-revert-mode 1)
@@ -279,7 +328,7 @@ USB側に残っている前回の状態を引き継ぐためのものです。"
   ;; 起動時にローカルキャッシュが無ければここから取り込み、
   ;; 終了時にはローカル保存後、非同期でここへコピーし返す。
   (defvar my/save-place-usb-file
-    (expand-file-name "save-place" user-emacs-directory))
+    (expand-file-name ".cache/save-place" user-emacs-directory))
   (my/maybe-pull-from-usb save-place-file my/save-place-usb-file)
 
   (defun my/save-place-save-safe ()
@@ -333,7 +382,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
 まずローカルの AppData 配下に書き込む。")
 
 (defvar my/frame-geometry-usb-file
-  (expand-file-name "frame-geometry.el" user-emacs-directory)
+  (expand-file-name ".cache/frame-geometry.el" user-emacs-directory)
   "フレーム位置・サイズのUSB（ポータブルディレクトリ）側コピー。")
 
 ;; 別のPCでこのUSBを挿した直後などは、ローカルキャッシュにまだ
@@ -399,7 +448,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
   (setq persistent-scratch-save-file
         (my/local-cache-file "persistent-scratch"))
   (defvar my/persistent-scratch-usb-file
-    (expand-file-name "persistent-scratch" user-emacs-directory))
+    (expand-file-name ".cache/persistent-scratch" user-emacs-directory))
   (my/maybe-pull-from-usb persistent-scratch-save-file my/persistent-scratch-usb-file)
 
   (persistent-scratch-setup-default)
@@ -468,7 +517,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
   
   ;; カスタムセクションの描画関数
   (defun my/dashboard-insert-hydra-guide (list-size)
-    (insert "\n=== 🚀 クイックメニュー (キーを押して直接実行 / [o] で全ランチャー表示) ===\n\n")
+    (insert "\n=== クイックメニュー (キーを押して直接実行 / [o] で全ランチャー表示) ===\n\n")
     (insert "  [e] Everything (PC検索)   [s] プロジェクト検索     [g] ファイル検索 (fd)\n")
     (insert "  [f] 最近使ったファイル     [w] ウィンドウ操作メニュー [d] 辞書検索 (Lookup)\n")
     (insert "  [L] カレンダー (calfw)     [p] PowerShell (conpty)  [c] cmd.exe (conpty)\n")
@@ -723,7 +772,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
   (setq recentf-save-file
         (my/local-cache-file "recentf"))
   (defvar my/recentf-usb-file
-    (expand-file-name "recentf" user-emacs-directory))
+    (expand-file-name ".cache/recentf" user-emacs-directory))
   (my/maybe-pull-from-usb recentf-save-file my/recentf-usb-file)
 
   (defun my/recentf-save-safe ()
@@ -750,7 +799,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
   ;; 終了時に固まる原因になるため、まずローカルキャッシュに保存先を変更する。
   (setq savehist-file (my/local-cache-file "savehist"))
   (defvar my/savehist-usb-file
-    (expand-file-name "savehist" user-emacs-directory))
+    (expand-file-name ".cache/savehist" user-emacs-directory))
   (my/maybe-pull-from-usb savehist-file my/savehist-usb-file)
 
   (setq savehist-additional-variables '(file-name-history)) ; ファイルを開いた履歴を強制記録
@@ -942,7 +991,7 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
   (let ((full-path (or buffer-file-name (buffer-name))))
     (propertize "%b"
                 'face '(:weight bold)
-                'help-echo full-path))) ; 💡 マウスを乗せたときに Windows 風にフルパスをポップアップ
+                'help-echo full-path))) ; マウスを乗せたときに Windows 風にフルパスをポップアップ
 
 ;; 時計の表示形式
 (setq display-time-string-forms '((format-time-string "%Y/%m/%d(%a) %H:%M:%S")))
@@ -1022,10 +1071,45 @@ USB等のポータブルドライブへの直接書き込みで終了時に固�
   (("C-<tab>"   . centaur-tabs-forward)
    ("C-S-<tab>" . centaur-tabs-backward)))
 
+;; =====================================================================
+;; 6b. ブラウザ風バッファ履歴移動 ＆ quick-back（位置ピン留めジャンプ）
+;; =====================================================================
+
+;; --- ブラウザ風バッファ履歴移動 (Alt+← で過去へ、Alt+→ で進む) ---
+;; いくつ前でも履歴をさかのぼって戻ることができ、戻りすぎたら進めます
+(global-set-key (kbd "M-<left>")  #'switch-to-prev-buffer)
+(global-set-key (kbd "M-<right>") #'switch-to-next-buffer)
+
+;; --- どこでも一発ピン留め (C-') ＆ ピン消去 (C-S-' / C-u C-') ---
+;; 範囲選択（青い反転）を起こさずに、足跡履歴（consult-mark）へピン留めする
+(defun my/quick-pin-clear ()
+  "現在のファイルのピン（足跡履歴）をすべて消去する。"
+  (interactive)
+  (setq mark-ring nil)
+  (message "このファイルのピン（足跡履歴）をすべてクリアしました"))
+
+(defun my/quick-pin-set (&optional clear)
+  "現在位置を範囲選択を起こさずにピン留め（足跡記録）する。
+C-u を前置するか、Ctrl+Shift+' を押すとこのファイルのピンを全消去する。"
+  (interactive "P")
+  (if clear
+      (my/quick-pin-clear)
+    (push-mark nil t nil)
+    (message "現在位置をピン留めしました [%s] (SPC m で一覧 / C-S-' でクリア)"
+             (buffer-name))))
+
+;; キーバインド
+(global-set-key (kbd "C-'")   #'my/quick-pin-set)
+;; 消去キー: Ctrl+Shift+'（JIS/US配列両対応）
+(global-set-key (kbd "C-\"")  #'my/quick-pin-clear)
+(global-set-key (kbd "C-S-'") #'my/quick-pin-clear)
+
+
 
 ;; =====================================================================
 ;; 7. Windows 連携コマンド
 ;; =====================================================================
+
 
 ;; 現在のファイルを Windows の関連付けプログラムで開く
 (defun my-open-current-file-in-windows ()
@@ -1573,32 +1657,32 @@ C-u 付きで実行するとダイアログでファイルを選び直せます�
   ;; スペース区切りでAND検索を可能にする
   (setq moccur-split-word t)
 
-  ;; 🔍 moccur表示中にヘッダーラインに操作説明を表示
+  ;; moccur表示中にヘッダーラインに操作説明を表示
   (advice-add 'moccur-mode :after
               (lambda (&rest _)
                 (setq header-line-format
                       (propertize
-                       "  🔍 moccur表示中  |  r: 編集モードに入る  |  q: 閉じる"
+                       "  [moccur表示中]  |  r: 編集モードに入る  |  q: 閉じる"
                        'face '(:background "#1a3a5c" :foreground "#aed6f1" :weight bold))))))
 
 (use-package moccur-edit
   :ensure nil
   :after color-moccur
   :config
-  ;; ✏ moccur-edit編集中にヘッダーラインを編集モード用に切り替え
+  ;; moccur-edit編集中にヘッダーラインを編集モード用に切り替え
   (advice-add 'moccur-edit-mode-in :after
               (lambda (&rest _)
                 (setq header-line-format
                       (propertize
-                       "  ✏ moccur編集中  |  C-c C-c: 変更を元ファイルに保存  |  C-c C-k: 編集をキャンセル"
+                       "  [moccur編集中]  |  C-c C-c: 変更を元ファイルに保存  |  C-c C-k: 編集をキャンセル"
                        'face '(:background "#3a1a1a" :foreground "#f4b8b8" :weight bold)))))
 
-  ;; 🔍 編集モード終了時にヘッダーラインを元に戻す
+  ;; 編集モード終了時にヘッダーラインを元に戻す
   (advice-add 'moccur-edit-reset-key :after
               (lambda (&rest _)
                 (setq header-line-format
                       (propertize
-                       "  🔍 moccur表示中  |  r: 編集モードに入る  |  q: 閉じる"
+                       "  [moccur表示中]  |  r: 編集モードに入る  |  q: 閉じる"
                        'face '(:background "#1a3a5c" :foreground "#aed6f1" :weight bold))))))
 
 
@@ -1917,14 +2001,150 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
         (user-error "このバッファはファイルに対応していません")
       (when (buffer-modified-p)
         (save-buffer))
-      ;; agy はファイルパスを裸の位置引数として渡すと
-      ;; "unexpected argument" エラーになる。-i (--prompt-interactive)
-      ;; の初期プロンプトとしてファイルパスを渡す。
       (let* ((quoted-file (my/ps-quote-argument file))
              (cmd (if (string-empty-p args)
                       (concat "agy -i " quoted-file)
                     (concat "agy " args " -i " quoted-file))))
         (my/run-in-external-terminal 'powershell cmd)))))
+
+;; --- Antigravity CLI ＆ gptel 連携（バッファ/選択範囲送信） ---
+
+(defun my/agy-export-context (start end)
+  "指定範囲のテキストをフォーマットし、一時ファイルとクリップボードに出力する。"
+  (let* ((text (buffer-substring-no-properties start end))
+         (mode major-mode)
+         (mode-str (replace-regexp-in-string "-mode$" "" (symbol-name mode)))
+         (file-path (buffer-file-name))
+         (file-name (if file-path (file-name-nondirectory file-path) (buffer-name)))
+         (line-start (line-number-at-pos start))
+         (line-end (line-number-at-pos end))
+         (is-full (and (= start (point-min)) (= end (point-max))))
+         (range-str (if is-full "バッファ全体" (format "行 %d〜%d" line-start line-end)))
+         (header (format "【対象: %s (%s, %s)】" file-name mode-str range-str))
+         (formatted (format "%s\n\n```%s\n%s\n```\n" header mode-str text))
+         (tmp-dir (expand-file-name "tmp" user-emacs-directory))
+         (ctx-file (expand-file-name "agy-context.md" tmp-dir)))
+    (unless (file-directory-p tmp-dir)
+      (make-directory tmp-dir t))
+    (with-temp-file ctx-file
+      (let ((coding-system-for-write 'utf-8-unix))
+        (insert formatted)))
+    (w32-set-clipboard-data formatted)
+    ctx-file))
+
+(defun my/agy-launch-terminal (context-file &optional prompt continue)
+  "PowerShell (Windows Terminal) で run-agy.ps1 を起動する。"
+  (let* ((wt (or (executable-find "wt.exe") (executable-find "wt")))
+         (pwsh-exe (or (executable-find "pwsh.exe") (executable-find "pwsh")))
+         (shell-bin (if pwsh-exe "pwsh.exe" "powershell.exe"))
+         (file-path (buffer-file-name))
+         (work-dir (if file-path
+                       (file-name-directory file-path)
+                     default-directory))
+         (script-file (expand-file-name "etc/run-agy.ps1" user-emacs-directory))
+         (prompt-arg (if (and prompt (not (string-empty-p prompt)))
+                         (format " -Prompt \"%s\"" (replace-regexp-in-string "\"" "`\"" prompt))
+                       ""))
+         (ctx-arg (if context-file (format " -ContextFile \"%s\"" context-file) ""))
+         (ps-args (if continue
+                      (format "-NoExit -ExecutionPolicy Bypass -File \"%s\" -WorkDir \"%s\" -Continue"
+                              script-file work-dir)
+                    (format "-NoExit -ExecutionPolicy Bypass -File \"%s\" -WorkDir \"%s\"%s%s"
+                            script-file work-dir ctx-arg prompt-arg))))
+    (if wt
+        (w32-shell-execute "open" wt (concat shell-bin " " ps-args))
+      (w32-shell-execute "open" shell-bin ps-args))))
+
+(defun my/agy-send-region (start end &optional prompt)
+  "選択範囲を Antigravity (PowerShell) に送信する。"
+  (interactive
+   (if (use-region-p)
+       (list (region-beginning) (region-end)
+             (read-string "Antigravity への指示 (EnterでPowerShellで入力): "))
+     (user-error "範囲が選択されていません")))
+  (let ((ctx-file (my/agy-export-context start end)))
+    (deactivate-mark)
+    (my/agy-launch-terminal ctx-file prompt)
+    (message "Antigravity CLI (PowerShell) を起動しました。")))
+
+(defun my/agy-send-buffer (&optional prompt)
+  "バッファ全体を Antigravity (PowerShell) に送信する。"
+  (interactive
+   (list (read-string "Antigravity への指示 (EnterでPowerShellで入力): ")))
+  (let ((ctx-file (my/agy-export-context (point-min) (point-max))))
+    (when (use-region-p) (deactivate-mark))
+    (my/agy-launch-terminal ctx-file prompt)
+    (message "Antigravity CLI (PowerShell) を起動しました。")))
+
+(defun my/agy-send-dwim (&optional prompt)
+  "選択範囲があれば選択範囲、なければバッファ全体を Antigravity に送信する。"
+  (interactive
+   (list (read-string "Antigravity への指示 (EnterでPowerShellで入力): ")))
+  (if (use-region-p)
+      (my/agy-send-region (region-beginning) (region-end) prompt)
+    (my/agy-send-buffer prompt)))
+
+(defun my/agy-continue ()
+  "直前の Antigravity セッションを再開する (agy -c)。"
+  (interactive)
+  (my/agy-launch-terminal nil nil t)
+  (message "直前の Antigravity セッションを再開しました。"))
+
+;; gptel 操作ガイド Hydra
+(defhydra hydra-gptel-help (:color blue :hint nil)
+  "
+  === gptel AI チャット操作ガイド ===  [F1 / q] 閉じる
+  [基本操作]
+  [C-c RET]  メッセージを送信 (問いかけ送信)
+  [C-c g m]  モデル切替・パラメータ設定 (gptel-menu)
+  [C-c g c]  現在のバッファ全体をコンテキストに追加/解除 (gptel-add)
+  [M-o A]    AI & Antigravity 全体メニュー (hydra-ai)
+
+  [問いかけの手順 (チャット)]
+  1. バッファ末尾に聞きたい質問や指示を日本語で入力します。
+  2. 【C-c RET】(Ctrl を押しながら Enter) を押すと AI に送信されます。
+  3. 回答が出た後、さらに下に続けて質問を書いて C-c RET を押せば対話が続きます。
+
+  [問いかけの手順 (ファイル編集中)]
+  ・質問したい範囲を選択して右クリック ＞「AI アシスタント」＞「質問・指示を入力して送信」
+  ・または M-o A を押して [a] (自動判別) / [s] (指示入力) を選ぶ
+  ------------------------------------------------------------------------------------------
+  [m] モデル切替 (gptel-menu)   [s] 質問・指示を入力   [A] Antigravity(PS)   [q / F1] 閉じる
+"
+  ("m" gptel-menu)
+  ("s" (my/gptel-context-send nil))
+  ("A" hydra-ai/body)
+  ("<f1>" nil :color blue)
+  ("<F1>" nil :color blue)
+  ("q" nil :color blue))
+
+;; AI ＆ Antigravity 専用ランチャーメニュー
+(defhydra hydra-ai (:color blue :hint nil)
+  "
+  === AI & ANTIGRAVITY ASSISTANT ===
+  [Antigravity CLI (PowerShell)]            [gptel (インライン / チャット)]
+  [a] 自動判別送信 (選択範囲 or バッファ)    [g] チャットバッファを開く (*AI-Chat*)
+  [r] 選択範囲を送信                        [s] 質問・指示を入力して送信 (ポップアップ)
+  [b] バッファ全体を送信                    [m] モデル切替・設定 (gptel-menu)
+  [c] 直前のセッションを再開 (agy -c)       [e] コード／文章を解説
+  [p] PowerShell で agy 起動 (引数自由)    [x] 文章を校正・推敲
+  ------------------------------------------------------------------------------------------
+  [?] gptel 操作ガイド (F1)                 [M] メインランチャーに戻る (M-o)   [q] 閉じる
+"
+  ("a" my/agy-send-dwim)
+  ("r" my/agy-send-region)
+  ("b" my/agy-send-buffer)
+  ("c" my/agy-continue)
+  ("p" my/run-agy-powershell-on-current-file)
+  ("g" (gptel "*AI-Chat*"))
+  ("s" (my/gptel-context-send nil))
+  ("m" gptel-menu)
+  ("e" (my/gptel-context-send nil "以下のコード／文章を分かりやすく日本語で解説してください：\n\n"))
+  ("x" (my/gptel-context-send nil "以下の文章の誤字脱字を直し、より自然で分かりやすい文章に推敲してください：\n\n"))
+  ("?" hydra-gptel-help/body)
+  ("h" hydra-gptel-help/body)
+  ("M" hydra-launcher/body)
+  ("q" nil :color blue))
 
 ;; ファイル操作メニュー
 (defhydra hydra-file (:color blue :hint nil)
@@ -1935,9 +2155,9 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   [r] 最近のファイル                   [E] 任意のファイルを外部で開く
   [s] 上書き保存                       [R] 最近のファイルを外部で開く
   [m] m3u8/m3u を検索して再生
-  [k] バッファを閉じる                 [外部コマンド実行 (現在ファイル)]
+  [k] バッファを閉じる                 [AI・外部コマンド実行]
+                                         [A] AI & Antigravity メニュー (hydra-ai)
                                          [a] Antigravity(agy) を cmd で実行
-                                         [A] Antigravity(agy) を PowerShell で実行
                                          [x] コマンドを実行 (cmd, %%%%f=パス)
                                          [X] コマンドを実行 (PS, %%%%f=パス)
                                          [その他]
@@ -1957,8 +2177,8 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   ("E" my/open-any-file-in-windows)
   ("R" my/open-recent-file-in-windows)
   ("m" my/m3u8-search-and-play)
+  ("A" hydra-ai/body)
   ("a" my/run-agy-cmd-on-current-file)
-  ("A" my/run-agy-powershell-on-current-file)
   ("x" my/run-command-cmd-on-current-file)
   ("X" my/run-command-powershell-on-current-file)
   ("d" my-compare-with-winmerge)
@@ -2121,7 +2341,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   [z] Zoxide移動 (zoxide-find-file)                 [k] 全バッファ閉じる (project-kill-buffers)
   [e] Everything (consult-locate)                   [r] 最近使ったファイル (consult-recent-file)
   ------------------------------------------------------------------------------------------
-  💡【裏技】フォルダ内に空の「.project」を置くだけで Git不要でルート認識されます！
+  【裏技】フォルダ内に空の「.project」を置くだけで Git不要でルート認識されます！
   ------------------------------------------------------------------------------------------
   [m] メインランチャーに戻る (hydra-launcher)       [q] 閉じる
 "
@@ -2148,18 +2368,18 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   [g] プロジェクトファイル検索 (consult-fd)         [o] Obsidian メニュー (hydra-obsidian)
   [f] 最近使ったファイル (consult-recent-file)      [w] ウィンドウ操作 (hydra-window)
   [r] ローマ字検索 (consult-line-migemo)            [F] ファイル操作 (hydra-file)
-  [b] ブックマーク (consult-bookmark)               [M] カラーマーカー (hydra-marker)
-  [O] 一括編集 (moccur)                             [L] カレンダー (my/open-calendar)
+  [O] 一括編集 (moccur)                             [S] Consult 探索メニュー (hydra-consult)
   [n] 新しいウィンドウ (make-frame)                 [d] 辞書 (lookup)
-  ------------------------------------------------------------------------------------------
   [c] cmd.exe (conpty)                              [P] PowerShell (conpty-powershell)
   [E] EPUBリーダー (nov.el)                         [C] 電卓メニュー (calc)
   [T] テキスト変換 (hydra-text)                     [W] 週間天気予報 (my/weather)
-  [H] howmメモ (my/howm-toggle)                     [?] Meow 操作ガイド
-  [q] 閉じる
+  [H] howmメモ (my/howm-toggle)                     [A] AI & Antigravity (hydra-ai)
+  ------------------------------------------------------------------------------------------
+  [?] Meow 操作ガイド                               [q] 閉じる
 "
   ("e" consult-locate)
   ("s" my/consult-ripgrep-project)
+  ("S" (if (fboundp 'hydra-consult/body) (hydra-consult/body)))
   ("g" my/consult-fd-project)
   ("G" my/consult-fd-here)
   ("p" hydra-project/body)
@@ -2172,6 +2392,8 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
   ("o" hydra-obsidian/body)
   ("w" hydra-window/body)
   ("F" hydra-file/body)
+  ("A" hydra-ai/body)
+  ("a" hydra-ai/body)
   ("M" hydra-marker/body)
   ("c" conpty)
   ("P" conpty-powershell)
@@ -2231,6 +2453,8 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
          ("<f2>"  . consult-buffer)
          ("<f8>"  . my/open-calendar)
          ("C-x r b" . consult-bookmark)
+         ("M-g m" . consult-mark)
+         ("M-g M" . consult-global-mark)
          ("M-o"   . hydra-launcher/body))
   :config
   ;; my/cua-cut-or-prefix 経由では ctl-x-map が正しく引けるが、
@@ -2420,7 +2644,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
             (lambda ()
               (setq header-line-format
                     (propertize
-                     "  ✏ フィルタ編集中  |  C-c C-c: 変更を保存  |  ESC: 編集終了(→qで閉じる)"
+                     "  [フィルタ編集中]  |  C-c C-c: 変更を保存  |  ESC: 編集終了(→qで閉じる)"
                      'face '(:background "#1a3a5c" :foreground "#aed6f1" :weight bold)))))
 
   ;; 読み取り専用の occur-mode に戻ったときのヘッダー表示フック
@@ -2428,7 +2652,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
             (lambda ()
               (setq header-line-format
                     (propertize
-                     "  🔍 フィルタ表示中  |  e: 編集モードに入る  |  q: 閉じる"
+                     "  [フィルタ表示中]  |  e: 編集モードに入る  |  q: 閉じる"
                      'face '(:background "#1a3a5c" :foreground "#aed6f1" :weight bold))))))
 
 ;; wgrep の編集モード開始時にヘッダーを表示
@@ -2437,7 +2661,7 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
             (lambda ()
               (setq header-line-format
                     (propertize
-                     "  ✏ wgrep 編集中  |  C-c C-c: 変更を全ファイルに保存  |  C-c C-k: キャンセル"
+                     "  [wgrep 編集中]  |  C-c C-c: 変更を全ファイルに保存  |  C-c C-k: キャンセル"
                      'face '(:background "#3a1a1a" :foreground "#f4b8b8" :weight bold))))))
 
 ;; --- consult の外部コマンドパス設定（fd / es.exe）---
@@ -2468,6 +2692,55 @@ wt.exe があれば Windows Terminal で、なければ標準のコンソール�
     (if es-exe
         (setq consult-locate-args (list (replace-regexp-in-string "\\\\" "/" es-exe) "-i" "-p" "-r"))
       (message "【お知らせ】es.exe が見つかりません。Everything をインストールするか portable/bin/ に置いてください。"))))
+
+;; =====================================================================
+;; Consult 探索メニュー (専用ランチャー)
+;; =====================================================================
+(defhydra hydra-consult (:color blue :hint nil)
+  "
+  === Consult 探索メニュー ===
+  [バッファ・ファイル]                          [テキスト・コード検索]
+  [b] 全バッファ・履歴 (consult-buffer)          [l] 行検索 (consult-line)
+  [f] 最近開いたファイル (consult-recent-file)  [s] 全文検索 (consult-ripgrep)
+  [g] ファイル名検索 (consult-fd)               [w] 単語全文検索 (my/consult-ripgrep-word)
+  [e] PC全体検索 (consult-locate)               [o] 見出し一覧 (consult-outline)
+                                                [i] 関数/クラス一覧 (consult-imenu)
+  [足跡・ピン留め・履歴]                        [その他・便利ツール]
+  [m] このファイルの足跡 (consult-mark)         [t] テーマ試着 (consult-theme)
+  [M] 全ファイルの足跡 (consult-global-mark)    [r] レジスタ一覧 (consult-register)
+  ['] 現在地にピン留め (my/quick-pin-set)       [F1] 全体ガイドへ
+  [c] ピン全消去 (my/quick-pin-clear)
+  [B] ブックマーク一覧 (consult-bookmark)
+  [y] コピー履歴から貼付 (consult-yank-pop)
+  --------------------------------------------------------------------------------------
+  [q / ESC] 閉じる
+"
+  ("b" consult-buffer)
+  ("f" consult-recent-file)
+  ("g" my/consult-fd-project)
+  ("G" my/consult-fd-here)
+  ("e" consult-locate)
+  ("l" my/consult-line-migemo)
+  ("s" my-consult-ripgrep-with-help)
+  ("w" my/consult-ripgrep-word)
+  ("o" consult-outline)
+  ("i" consult-imenu)
+  ("m" consult-mark)
+  ("M" consult-global-mark)
+  ("'" my/quick-pin-set)
+  ("c" my/quick-pin-clear)
+  ("B" consult-bookmark)
+  ("y" consult-yank-pop)
+  ("t" consult-theme)
+  ("r" consult-register)
+  ("<f1>" my/smart-help)
+  ("q" nil :color blue)
+  ("<escape>" nil :color blue))
+
+;; グローバルキー (どのモードからでも起動可能)
+(global-set-key (kbd "M-s")   #'hydra-consult/body)
+(global-set-key (kbd "C-c s") #'hydra-consult/body)
+
 
 
 ;; --- YouTube検索 (consult + yt-dlp) ---
@@ -3235,7 +3508,7 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
                     (setq title (file-name-sans-extension filename)))
                   (when (> (length title) 16)
                     (setq title (concat (substring title 0 15) "…")))
-                  (let ((item-text (format "📝 %s" title)))
+                  (let ((item-text (format "・%s" title)))
                     (setq contents (calfw--contents-add date item-text contents))))))))))
     contents))
 
@@ -3700,7 +3973,7 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
             (run-with-idle-timer
              0.1 nil
              (lambda ()
-               (message "💡 Calc: [C-o] メニュー表示  /  [C-u 0 DEL] スタック全消去  /  [C-x * 0] 初期化")))))
+               (message "Calc: [C-o] メニュー表示  /  [C-u 0 DEL] スタック全消去  /  [C-x * 0] 初期化")))))
 
 ;; F6 で Calc を即起動（電卓を呼び出す感覚で）
 (global-set-key [f6] #'calc)
@@ -3874,6 +4147,49 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
 (use-package nov
   :ensure t
   :mode ("\\.epub\\'" . nov-mode)
+  :init
+  ;; 章名取得のヘルパー関数（起動時から即座に定義して redisplay エラーを防止）
+  (defun nov-current-document-title ()
+    "現在のEPUB章名を取得します。取得できない場合は空文字列を返します。"
+    (or (ignore-errors
+          (when (and (bound-and-true-p nov-documents)
+                     (bound-and-true-p nov-documents-index)
+                     (< nov-documents-index (length nov-documents)))
+            (let* ((current-doc (aref nov-documents nov-documents-index))
+                   (current-path (cdr current-doc))
+                   (current-file (and current-path (file-name-nondirectory current-path))))
+              ;; Imenu 目次リストから現在のファイルに該当する見出し名を探す
+              (when (bound-and-true-p imenu--index-alist)
+                (car (cl-find-if
+                      (lambda (entry)
+                        (and (listp (cdr entry))
+                             (let ((pos (cadr entry)))
+                               (and (stringp pos)
+                                    (or (string-suffix-p pos current-path)
+                                        (string= (file-name-nondirectory pos) current-file))))))
+                      imenu--index-alist))))))
+        ""))
+
+  ;; 読書進捗ヘッダーライン（書籍タイトル・章名・進捗率を表示）
+  (defun my/nov-header-line ()
+    (condition-case nil
+        (if (and (bound-and-true-p nov-documents) (> (length nov-documents) 0))
+            (let* ((title (or (alist-get 'title nov-metadata)
+                              (if nov-file-name
+                                  (file-name-sans-extension (file-name-nondirectory nov-file-name))
+                                (buffer-name))))
+                   (chap (or (and (fboundp 'nov-current-document-title)
+                                  (nov-current-document-title))
+                             ""))
+                   (idx (1+ (or nov-documents-index 0)))
+                   (total (length nov-documents))
+                   (pct (/ (* idx 100) (max 1 total))))
+              (format " [%s] %s [第 %d/%d 章 (%d%%)]"
+                      (propertize title 'face 'bold)
+                      (if (string-empty-p chap) "" (format "› %s " (propertize chap 'face 'italic)))
+                      idx total pct))
+          "")
+      (error "")))
   :config
   ;; Windows 対策：Windows 標準の tar.exe を unzip として使う設定
   (when (eq system-type 'windows-nt)
@@ -3890,23 +4206,6 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
     (let ((gc-cons-threshold (max gc-cons-threshold (* 256 1024 1024))))
       (apply orig-fn args)))
   (advice-add 'nov-render-document :around #'my/nov-render-document--boost-gc)
-
-  ;; 読書進捗ヘッダーライン（書籍タイトル・章名・進捗率を表示）
-  (defun my/nov-header-line ()
-    (if (and (bound-and-true-p nov-documents) (> (length nov-documents) 0))
-        (let* ((title (or (alist-get 'title nov-metadata)
-                          (if nov-file-name
-                              (file-name-sans-extension (file-name-nondirectory nov-file-name))
-                            (buffer-name))))
-               (chap (or (nov-current-document-title) ""))
-               (idx (1+ (or nov-documents-index 0)))
-               (total (length nov-documents))
-               (pct (/ (* idx 100) (max 1 total))))
-          (format " 📖 %s %s [第 %d/%d 章 (%d%%)]"
-                  (propertize title 'face 'bold)
-                  (if (string-empty-p chap) "" (format "› %s " (propertize chap 'face 'italic)))
-                  idx total pct))
-      ""))
 
   (defun my/nov-mode-hook ()
     (setq-local line-spacing 0.2)
@@ -3978,10 +4277,12 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
 
 ;; 電子書籍ライブラリ・本棚機能 (Consult 連携)
 (defcustom my/nov-books-directories
-  (list (expand-file-name "Documents" (getenv "USERPROFILE"))
-        (expand-file-name "Downloads" (getenv "USERPROFILE"))
-        (expand-file-name "Desktop" (getenv "USERPROFILE")))
-  "EPUB / AZW3 書籍ファイルを探索するディレクトリのリスト。"
+  (let ((env-dir (getenv "EBOOKS_DIR")))
+    (if (and env-dir (file-directory-p env-dir))
+        (list env-dir)
+      nil))
+  "EPUB / AZW3 書籍ファイルを探索するディレクトリのリスト。
+環境変数 `EBOOKS_DIR` または本変数で設定可能です（未設定時は個人フォルダを自動探索しません）。"
   :type '(repeat directory)
   :group 'nov)
 
@@ -3995,7 +4296,7 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
         (when (and (stringp f)
                    (string-match-p "\\.\\(epub\\|azw3?\\)\\'" f)
                    (file-exists-p f))
-          (push (cons (format "📖 [最近] %s  (%s)"
+          (push (cons (format "[最近] %s  (%s)"
                               (file-name-nondirectory f)
                               (file-name-directory f))
                       f)
@@ -4006,14 +4307,14 @@ howm-mode が有効な場合（howm 経由で開いた md）は表示しませ�
         (dolist (f (ignore-errors
                      (directory-files-recursively dir "\\.\\(epub\\|azw3?\\)\\'" nil
                                                   (lambda (d) (not (string-match-p "/\\." d))))))
-          (let ((entry (cons (format "📚 %s  (%s)"
+          (let ((entry (cons (format "%s  (%s)"
                                      (file-name-nondirectory f)
                                      (file-name-directory f))
                              f)))
             (unless (rassoc f candidates)
               (push entry candidates))))))
     (setq candidates (nreverse candidates))
-    (push (cons "📂 [ファイル選択ダイアログから開く...]" 'choose-file) candidates)
+    (push (cons "[ファイル選択ダイアログから開く...]" 'choose-file) candidates)
     (let* ((prompt "本棚から開く書籍を選択: ")
            (cands-alist candidates)
            (selected (if (fboundp 'consult--read)
@@ -4490,6 +4791,90 @@ EPUB への変換とオープンが終わったら、元の AZW/AZW3 バッフ�
   (unless (use-region-p) (mouse-set-point e))
   (my/consult-line-symbol-at-point))
 
+(defun my/gptel-context-send (e &optional task-prompt)
+  "右クリックメニューから選択範囲（またはバッファ全体）をAIに送信し、
+*AI-Response* バッファに回答を表示します。
+送信直後に選択範囲のハイライトを解除します。"
+  (interactive "e")
+  (unless (use-region-p) (mouse-set-point e))
+  (require 'gptel)
+  (let* ((has-region (use-region-p))
+         (src-text (if has-region
+                       (buffer-substring-no-properties (region-beginning) (region-end))
+                     (buffer-substring-no-properties (point-min) (point-max))))
+         (src-mode major-mode)
+         (src-file (buffer-name))
+         (instruction (or task-prompt
+                          (read-string "AIへの指示・質問: "))))
+    ;; 送信直後に選択ハイライトを解除（選択範囲が消えない問題の解消）
+    (when (use-region-p)
+      (deactivate-mark))
+    (when (or (null instruction) (string-blank-p instruction))
+      (user-error "指示がキャンセルされました"))
+    (let* ((resp-buf (get-buffer-create "*AI-Response*"))
+           (backend-name (if (and (boundp 'gptel-backend) gptel-backend)
+                             (gptel-backend-name gptel-backend)
+                           "AI"))
+           (full-prompt (format "%s\n\n```%s\n%s\n```"
+                                instruction
+                                (replace-regexp-in-string "-mode$" "" (symbol-name src-mode))
+                                src-text)))
+      ;; レスポンスバッファを準備
+      (with-current-buffer resp-buf
+        (let ((inhibit-read-only t))
+          (erase-buffer)
+          (if (fboundp 'markdown-mode)
+              (markdown-mode)
+            (text-mode))
+          (insert (format "# %s アシスタントへの問い合わせ\n\n- **対象**: `%s` (%s)\n- **指示**: %s\n\n---\n\n*回答を受信中...*\n\n"
+                          backend-name
+                          src-file
+                          (if has-region "選択範囲" "バッファ全体")
+                          instruction))))
+      (display-buffer resp-buf)
+      ;; gptel-request で非同期リクエスト
+      (gptel-request full-prompt
+        :callback
+        (lambda (response info)
+          (if (not response)
+              (with-current-buffer resp-buf
+                (let ((inhibit-read-only t))
+                  (goto-char (point-max))
+                  (insert "\n\n**エラー**: AIからの応答を受信できませんでした。")))
+            (with-current-buffer resp-buf
+              (let ((inhibit-read-only t))
+                (goto-char (point-max))
+                (if (search-backward "*回答を受信中...*" nil t)
+                    (delete-region (match-beginning 0) (point-max))
+                  (goto-char (point-max)))
+                (insert response "\n\n---\n*完了*"))))))
+      (message "AI (%s) へ問い合わせを送信しました..." backend-name))))
+
+(defun my/gptel-send-to-chat (e)
+  "選択範囲（またはバッファ全体）をチャットバッファ *AI-Chat* に転送して開きます。"
+  (interactive "e")
+  (unless (use-region-p) (mouse-set-point e))
+  (require 'gptel)
+  (let* ((has-region (use-region-p))
+         (src-text (if has-region
+                       (buffer-substring-no-properties (region-beginning) (region-end))
+                     (buffer-substring-no-properties (point-min) (point-max))))
+         (src-mode major-mode)
+         (src-file (buffer-name)))
+    (when (use-region-p)
+      (deactivate-mark))
+    (let ((chat-buf (gptel "*AI-Chat*")))
+      (with-current-buffer chat-buf
+        (goto-char (point-max))
+        (unless (bolp) (insert "\n"))
+        (insert (format "\n【%s (%s)】\n```%s\n%s\n```\n\n"
+                        src-file
+                        (if has-region "選択範囲" "バッファ全体")
+                        (replace-regexp-in-string "-mode$" "" (symbol-name src-mode))
+                        src-text)))
+      (pop-to-buffer chat-buf)
+      (message "チャットバッファに対象テキストを転送しました。"))))
+
 (defun my/emeditor-context-menu (menu click)
   "EmEditor 風の右クリックメニュー項目を追加します。"
 
@@ -4659,6 +5044,63 @@ EPUB への変換とオープンが終わったら、元の AZW/AZW3 バッフ�
                   :enable buffer-file-name))
     (define-key-after menu [my-file-submenu]
       `(menu-item "ファイル/フォルダ" ,file-map :help "パスのコピーやエクスプローラー起動")))
+
+  ;; ── AI アシスタント サブメニュー（最下部に独立配置） ──
+  (define-key-after menu [my-ai-sep] menu-bar-separator)
+  (let ((ai-map (make-sparse-keymap "AI アシスタント")))
+    (define-key ai-map [agy-send-dwim]
+      '(menu-item "Antigravity CLI (PowerShell) に送信..."
+                  (lambda (e) (interactive "e")
+                    (unless (use-region-p) (mouse-set-point e))
+                    (call-interactively #'my/agy-send-dwim))
+                  :help "選択範囲（またはバッファ全体）を Antigravity CLI (PowerShell) に送信します"))
+    (define-key ai-map [agy-menu]
+      '(menu-item "AI & Antigravity メニュー (Hydra)"
+                  (lambda () (interactive) (hydra-ai/body))
+                  :keys "M-o A"
+                  :help "AI アシスタントと Antigravity の全操作メニューを開きます"))
+    (define-key ai-map [ai-sep0] menu-bar-separator)
+    (define-key ai-map [ask-prompt]
+      '(menu-item "質問・指示を入力して送信 (gptel)..."
+                  (lambda (e) (interactive "e") (my/gptel-context-send e))
+                  :help "選択範囲（またはバッファ全体）についてAIに自由に質問・指示します"))
+    (define-key ai-map [ai-sep1] menu-bar-separator)
+    (define-key ai-map [explain]
+      '(menu-item "コード／文章を解説"
+                  (lambda (e) (interactive "e")
+                    (my/gptel-context-send e "以下のコード／文章を分かりやすく日本語で解説してください：\n\n"))
+                  :help "選択範囲（またはバッファ）を分かりやすく解説させます"))
+    (define-key ai-map [refactor]
+      '(menu-item "リファクタリング・改善案"
+                  (lambda (e) (interactive "e")
+                    (my/gptel-context-send e "以下のコードの品質・可読性・パフォーマンスを改善したコードと理由を提示してください：\n\n"))
+                  :help "コードの改善案と修正コードを提示させます"))
+    (define-key ai-map [proofread]
+      '(menu-item "文章を校正・推敲"
+                  (lambda (e) (interactive "e")
+                    (my/gptel-context-send e "以下の文章の誤字脱字を直し、より自然で分かりやすい文章に推敲してください：\n\n"))
+                  :help "文章の校正と改善案を提示させます"))
+    (define-key ai-map [send-to-chat]
+      '(menu-item "チャットバッファに転送"
+                  (lambda (e) (interactive "e") (my/gptel-send-to-chat e))
+                  :help "選択範囲（またはバッファ）をチャットバッファに貼り付けて開きます"))
+    (define-key ai-map [ai-sep2] menu-bar-separator)
+    (define-key ai-map [open-chat]
+      '(menu-item "チャットバッファを開く"
+                  (lambda () (interactive) (gptel "*AI-Chat*"))
+                  :keys "C-c g g"
+                  :help "AI との対話バッファを開きます"))
+    (define-key ai-map [add-context]
+      '(menu-item "このバッファをコンテキストに追加"
+                  (lambda () (interactive) (call-interactively #'gptel-add))
+                  :help "現在のバッファ内容をチャットの前提情報として添付します"))
+    (define-key ai-map [gptel-menu]
+      '(menu-item "モデル切替・設定 (gptel メニュー)"
+                  (lambda () (interactive) (call-interactively #'gptel-menu))
+                  :keys "C-c g m"
+                  :help "使用モデル(Qwen/OpenAI/Claude等)やパラメータを変更します"))
+    (define-key-after menu [my-ai-submenu]
+      `(menu-item "AI アシスタント" ,ai-map :help "LLM / Antigravity を使った質問・指示・対話")))
 
   menu)
 
@@ -5142,14 +5584,22 @@ M-0〜M-9を前置した場合はそのレジスタへコピーする（削除�
         (insert-register (+ ?0 register))
       (meow-yank)))
 
-  (defun my/meow-insert-exit ()
-    "IMEがONなら明示的にOFFにしてから、無条件でNORMALに復帰する。
-meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理の
-途中に挟まりIMEの不具合次第でESCそのものが効かなくなる恐れが
-あったため、キー自体をこの関数に差し替えて実行順序を確定させる。"
+  (defun my/ime-off ()
+    "Windows IME (OS側) と Emacs内部日本語入力 (Mozc) の両方を確実に OFF にする。"
     (interactive)
+    ;; 1. Windows OS 側の IME を明示的に OFF（半角英数に強制）
+    (when (fboundp 'w32-set-ime-open-status)
+      (ignore-errors (w32-set-ime-open-status nil)))
+    ;; 2. Emacs 内部の input method (Mozc 等) を確実に OFF（自動復活を防止）
+    (when (boundp 'my/mozc-manual-off)
+      (setq my/mozc-manual-off t))
     (when current-input-method
-      (ignore-errors (deactivate-input-method)))
+      (ignore-errors (deactivate-input-method))))
+
+  (defun my/meow-insert-exit ()
+    "IMEを確実にOFFにしてから、無条件でNORMALに復帰する。"
+    (interactive)
+    (my/ime-off)
     (meow-insert-exit))
 
   ;; Meow 日本語キーバインドガイド (INSERT / 編集モード)
@@ -5166,16 +5616,21 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
   C-h : リアルタイム置換      C-w : バッファ閉じる      Tab : 補完決定 (Corfu)
   M-％ : スマート置換         C-q / Alt+F4: 終了        C-f : 検索 (Migemo)
   C-> / C-< : 同単語ジャンプ  F1 / C-c ? : このガイド   F3 / S-F3 : 次/前を検索
+  Alt+←/→ : バッファ履歴(戻る/進む)                     C-'/C-S-' : ピン留め / クリア
+  M-g m   : 足跡一覧 (consult-mark)                     M-g M     : 全ファイル足跡一覧
   ----------------------------------------------------------------------
   [ファンクションキー早見表]
   F1: このガイド   F2: バッファ切替 (Consult)   F3: 検索 (Migemo)   F4: 目次サイドバー
   F5: 更新 (確認)  F6: 電卓 (Calc)  F7: howm (S-F7:検索)  F8: カレンダー (S-F8:天気)
   ----------------------------------------------------------------------
-  [Tab / n] NORMALへ   [C-]] 強制脱出 (非常口)   [H] 標準ヘルプ   [q / ESC / F1] 閉じる
+  [Tab / n] NORMALへ   [s] Consultメニュー   [m / M] 足跡一覧   [H] 標準ヘルプ   [q / ESC / F1] 閉じる
 "
     ("<tab>" (if (fboundp 'hydra-meow-help/body) (hydra-meow-help/body)) :color blue)
     ("TAB" (if (fboundp 'hydra-meow-help/body) (hydra-meow-help/body)) :color blue)
     ("n" (if (fboundp 'hydra-meow-help/body) (hydra-meow-help/body)) :color blue)
+    ("s" (if (fboundp 'hydra-consult/body) (hydra-consult/body)) :color blue)
+    ("m" (call-interactively #'consult-mark) :color blue)
+    ("M" (call-interactively #'consult-global-mark) :color blue)
     ("H" (call-interactively #'help-command) :color blue)
     ("q" nil :color blue)
     ("<escape>" nil :color blue)
@@ -5204,8 +5659,10 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
   n / N   : 次 / 前の一致   ) : 式の中身だけを選択     d : 切り取り (C-x / M-0〜9可)
   - n     : 逆検索 (Meow)   o : ブロック(連打で親へ)   p : 貼り付け (C-v互換)
   ;       : 選択方向を反転  SPC p ( : 選択を( )で包む  u : 元に戻す (Undo)
-                            SPC p s : 囲み括弧を外す   C-d: 1文字削除  C-k: 行末削除
-                            SPC b   : ブックマーク一覧 C-\\ : Mozc ON/OFF (日本語)
+  Alt+←/→ : 履歴(戻る/進む) SPC p s : 囲み括弧を外す   C-d: 1文字削除  C-k: 行末削除
+  C-'/C-S': ピン留め/クリア SPC b : ブックマーク一覧 C-\\ : Mozc ON/OFF (日本語)
+                            SPC m   : 足跡一覧(マーク) SPC M : 全ファイル足跡一覧
+                            SPC s   : Consult 探索メニュー (各種探索ツール)
   ----------------------------------------------------------------------
   [ファンクションキー早見表]
   F1: このガイド   F2: バッファ切替 (Consult)   F3: 検索 (Migemo)   F4: 目次サイドバー
@@ -5217,11 +5674,14 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
   [大文字(Shift)の法則]
   H/J/K/L : 選択を伸ばす (拡張)  W/E/B : 変数全体 (シンボル)  N / X : 逆方向 (- と同じ)
   ----------------------------------------------------------------------
-  [Tab / i] INSERTへ   [C-w] 閉じる   [C-q / Alt+F4] Emacs終了   [q / ESC / F1] 閉じる
+  [Tab / i] INSERTへ   [s] Consultメニュー   [m / M] 足跡一覧   [C-q / Alt+F4] 終了   [q / ESC / F1] 閉じる
 "
     ("<tab>" hydra-meow-insert-help/body :color blue)
     ("TAB" hydra-meow-insert-help/body :color blue)
     ("i" hydra-meow-insert-help/body :color blue)
+    ("s" (if (fboundp 'hydra-consult/body) (hydra-consult/body)) :color blue)
+    ("m" (call-interactively #'consult-mark) :color blue)
+    ("M" (call-interactively #'consult-global-mark) :color blue)
     ("H" (call-interactively #'help-command) :color blue)
     ("q" nil :color blue)
     ("<escape>" nil :color blue)
@@ -5230,20 +5690,25 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
 
   ;; F1 スマートヘルプ：現在のバッファ・モードに応じて最適なガイドを自動表示
   (defun my/smart-help ()
-    "現在のモード（カレンダー / EWW / nov.el / Meow INSERT / Meow NORMAL）に応じて最適な操作ガイドを表示する。
-特殊モード以外でMeow未ロード時は通常の Emacs ヘルプを開く。"
+    "現在のモード（AI / カレンダー / EWW / nov.el / Meow INSERT / Meow NORMAL）に応じて最適な操作ガイドを表示する。
+特殊モード以外でもガイドを確実に優先表示し、S-F1 で標準ヘルプを開く。"
     (interactive)
     (cond
+     ((and (or (bound-and-true-p gptel-mode)
+               (derived-mode-p 'gptel-mode)
+               (string-match-p "\\*.*\\(Chat\\|AI-Response\\|gptel\\).*" (buffer-name)))
+           (fboundp 'hydra-gptel-help/body))
+      (hydra-gptel-help/body))
      ((and (derived-mode-p 'calfw-calendar-mode 'cfw:calendar-mode) (fboundp 'hydra-calfw-help/body))
       (hydra-calfw-help/body))
      ((and (derived-mode-p 'eww-mode) (fboundp 'hydra-eww-help/body))
       (hydra-eww-help/body))
      ((and (derived-mode-p 'nov-mode) (fboundp 'hydra-nov-help/body))
       (hydra-nov-help/body))
-     ((bound-and-true-p meow-insert-mode)
-      (hydra-meow-insert-help/body))
-     ((bound-and-true-p meow-mode)
+     ((and (bound-and-true-p meow-mode) (not (bound-and-true-p meow-insert-mode)))
       (hydra-meow-help/body))
+     ((fboundp 'hydra-meow-insert-help/body)
+      (hydra-meow-insert-help/body))
      (t
       (call-interactively #'help-command))))
 
@@ -5277,7 +5742,10 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
 
     ;; リーダーキー（SPC）経由のコマンド
     (meow-leader-define-key
+     '("s" . hydra-consult/body)
      '("b" . consult-bookmark)
+     '("m" . consult-mark)
+     '("M" . consult-global-mark)
      '("j" . "H-j")
      '("k" . "H-k")
      '("1" . meow-digit-argument)
@@ -5370,6 +5838,40 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
 
   (my/meow-setup)
 
+  ;; --- Meow モードラインインジケータ（文字のみ・立体バッジ表示） ---
+  (setq meow-replace-state-name-list
+        '((normal . " NORMAL ")
+          (insert . " INSERT ")
+          (beacon . " BEACON ")
+          (motion . " MOTION ")
+          (keypad . " KEYPAD ")))
+
+  (defun my/apply-meow-indicator-faces ()
+    "Meowのモードラインインジケータのバッジ配色を設定する。"
+    (when (facep 'meow-normal-indicator)
+      ;; NORMAL: エメラルドグリーン背景 ＋ 白文字太字 ＋ 枠線
+      (set-face-attribute 'meow-normal-indicator nil
+                          :background "#10b981" :foreground "#ffffff"
+                          :weight 'bold :box '(:line-width (1 . 1) :color "#059669"))
+      ;; INSERT: オレンジ背景 ＋ 白文字太字 ＋ 枠線
+      (set-face-attribute 'meow-insert-indicator nil
+                          :background "#d97706" :foreground "#ffffff"
+                          :weight 'bold :box '(:line-width (1 . 1) :color "#b45309"))
+      ;; BEACON: パープル背景 ＋ 白文字太字 ＋ 枠線
+      (set-face-attribute 'meow-beacon-indicator nil
+                          :background "#8b5cf6" :foreground "#ffffff"
+                          :weight 'bold :box '(:line-width (1 . 1) :color "#7c3aed"))
+      ;; MOTION: ブルー背景 ＋ 白文字太字 ＋ 枠線
+      (set-face-attribute 'meow-motion-indicator nil
+                          :background "#0284c7" :foreground "#ffffff"
+                          :weight 'bold :box '(:line-width (1 . 1) :color "#0369a1"))
+      ;; KEYPAD: ティール背景 ＋ 白文字太字 ＋ 枠線
+      (set-face-attribute 'meow-keypad-indicator nil
+                          :background "#0d9488" :foreground "#ffffff"
+                          :weight 'bold :box '(:line-width (1 . 1) :color "#0f766e"))))
+
+  (my/apply-meow-indicator-faces)
+
   ;; --- NORMAL復帰時にIMEを自動OFF ---
   ;; meow-normal-mode に直接フックすると、日本語入力を確定した直後に
   ;; 誤ってIMEまでOFFになってしまう不具合があるため、フックではなく
@@ -5380,8 +5882,15 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
   ;; 抑制と同じ関数）。
   (with-eval-after-load 'meow
     (meow-define-keys 'insert
-    '("<escape>" . my/meow-insert-exit)
-    '("C-c ?" . hydra-meow-insert-help/body))
+      '("<escape>" . my/meow-insert-exit)
+      '("C-c ?" . hydra-meow-insert-help/body))
+    ;; INSERT脱出時およびNORMAL復帰時に確実にIMEをOFF（タイマーで安全に非同期実行）
+    (add-hook 'meow-insert-exit-hook
+              (lambda () (run-at-time 0 nil #'my/ime-off)))
+    (add-hook 'meow-switch-state-hook
+              (lambda (&rest _)
+                (when (bound-and-true-p meow-normal-mode)
+                  (run-at-time 0 nil #'my/ime-off))))
     (with-eval-after-load 'meow-beacon
       (define-key meow-beacon-state-keymap (kbd "r") #'my/meow-replace)
       (define-key meow-beacon-state-keymap (kbd "<escape>") #'my/meow-cancel-selection)
@@ -5431,6 +5940,15 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
           (text-mode . insert)
           (conpty-mode . insert)
           (term-mode . insert)))
+
+  ;; 通常ファイルを新規・既存で開いた時は、確実に INSERT モードで開始する
+  ;; （※ Dired、Help、特殊バッファなどの閲覧専用画面は除く）
+  (add-hook 'find-file-hook
+            (lambda ()
+              (unless (or (derived-mode-p 'dired-mode 'help-mode 'special-mode)
+                          buffer-read-only)
+                (when (fboundp 'meow--switch-state)
+                  (meow--switch-state 'insert)))))
 
   ;; モードラインにMeowの状態表示（<N>/<I>/<M>等）を追加する。
   ;; 5節で mode-line-format を独自リストに差し替えているため、
@@ -5517,7 +6035,10 @@ meow-insert-exit-hook経由だと、フックがMeow内部の状態遷移処理�
   "U-NEXT の動画を検索し、ミニバッファ（Vertico）で作品を選択して専用ウィンドウで開く。"
   (interactive "sU-NEXT 検索キーワード: ")
   (let* ((script-candidates
-          (list (expand-file-name "unext_search.py" user-emacs-directory)
+          (list (expand-file-name "etc/unext_search.py" user-emacs-directory)
+                (expand-file-name "scripts/unext_search.py" user-emacs-directory)
+                (expand-file-name "tools/unext_search.py" user-emacs-directory)
+                (expand-file-name "unext_search.py" user-emacs-directory)
                 (expand-file-name "unext_search.py" (file-name-directory (or load-file-name buffer-file-name default-directory)))
                 (expand-file-name "unext_search.py" default-directory)))
          (script (cl-find-if #'file-exists-p script-candidates)))
@@ -5870,7 +6391,9 @@ C-u を前置した場合は URL のみをコピーする。"
                             :background "#f0f4fc"
                             :foreground nil
                             :extend t)
-        (set-face-attribute 'cursor nil :background "#005fb8")))))
+        (set-face-attribute 'cursor nil :background "#005fb8"))))
+  (when (fboundp 'my/apply-meow-indicator-faces)
+    (my/apply-meow-indicator-faces)))
 (my/apply-cursor-region-faces)
 (if (boundp 'enable-theme-functions)
     (add-hook 'enable-theme-functions #'my/apply-cursor-region-faces)
@@ -5918,3 +6441,56 @@ C-u を前置した場合は URL のみをコピーする。"
     "C-x p b" "プロジェクト内バッファ切り替え"
     "C-x p k" "プロジェクトの全バッファを閉じる"))
 
+
+;; =====================================================================
+;; 軽量株式チャートブラウザ (my-stock-chart.el)
+;; =====================================================================
+;; meigaralist.txt の銘柄・テーマ別リアルタイムチャートを表示
+(let ((stock-chart-dir (expand-file-name "site-lisp/my-stock-chart" user-emacs-directory)))
+  (when (file-directory-p stock-chart-dir)
+    (add-to-list 'load-path stock-chart-dir))
+  (when (require 'my-stock-chart nil t)
+    (defalias 'stock-charts #'my/stock-chart-open)
+    (defalias 'stock-chart #'my/stock-chart-open)
+    (defalias 'consult-stock-chart-all #'my/stock-chart-search-all)
+    (defalias 'consult-stock-chart-my #'my/stock-chart-search-my)))
+
+;; =====================================================================
+;; gptel（Qwen / LLM チャットクライアント）
+;; =====================================================================
+(use-package gptel
+  :ensure t
+  :bind (("C-c g g" . gptel)        ; チャットバッファを開く
+         ("C-c g m" . gptel-menu)   ; モデル・パラメータ切り替えメニュー
+         ("C-c RET" . gptel-send))  ; 選択範囲／プロンプトを送信
+  :config
+  ;; Windows ポータブル同梱 curl.exe を優先＆UTF-8固定
+  (let ((portable-curl (expand-file-name "../bin/curl.exe" user-emacs-directory)))
+    (when (file-executable-p portable-curl)
+      (setq gptel-use-curl portable-curl
+            gptel-curl-extra-args '("--insecure"))))
+  (add-to-list 'process-coding-system-alist '("curl" . (utf-8 . utf-8)))
+
+  ;; Qwen (Alibaba DashScope) バックエンド登録
+  (gptel-make-openai "Qwen"
+    :host "dashscope-intl.aliyuncs.com" ; ※国際版（中国国内リージョンは "dashscope.aliyuncs.com"）
+    :endpoint "/compatible-mode/v1/chat/completions"
+    :stream t
+    :key (lambda () (getenv "DASHSCOPE_API_KEY"))
+    :models '(qwen-plus
+              qwen-max
+              qwen-turbo
+              qwen-coder-plus
+              qwen2.5-coder-32b-instruct))
+
+  ;; デフォルトモデル設定
+  (setq gptel-backend (gptel-get-backend "Qwen")
+        gptel-model   'qwen-plus)
+
+  ;; gptel チャットバッファでの F1 操作ガイドバインド
+  (with-eval-after-load 'gptel
+    (define-key gptel-mode-map (kbd "<f1>")
+      (lambda () (interactive)
+        (if (fboundp 'hydra-gptel-help/body)
+            (hydra-gptel-help/body)
+          (describe-mode))))))

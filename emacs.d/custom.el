@@ -8,21 +8,21 @@
  '(context-menu-mode t)
  '(cua-mode t)
  '(current-language-environment "Japanese")
- '(custom-enabled-themes '(ef-eagle))
+ '(custom-enabled-themes '(ef-duo-light))
  '(custom-safe-themes t)
  '(display-time-mode t)
  '(global-display-line-numbers-mode t)
  '(package-selected-packages
    '(acp anzu atomic-chrome autothemer bicycle calfw-howm cape
 		 casual-symbol-overlay centaur-tabs chocolate-theme
-		 color-moccur corfu dashboard dictionary dmacro editorconfig
-		 ef-themes embark-consult faceup forest-blue-theme
-		 hide-mode-line ical-form iceberg-theme imenu-list
-		 japanese-holidays major-mode-hydra marginalia markdown-toc
-		 markdown-ts-mode meow migemo modus-ewal-theme mozc-modeless
-		 multiple-cursors nov nyan-mode oauth2 obsidian orderless org
-		 org-download peg persist persistent-scratch puni
-		 rainbow-delimiters request simple-httpd smartparens taxy
+		 color-moccur corfu cperl-mode dashboard dictionary dmacro
+		 editorconfig ef-themes embark-consult faceup flymake
+		 forest-blue-theme hide-mode-line ical-form iceberg-theme
+		 imenu-list japanese-holidays major-mode-hydra marginalia
+		 markdown-toc markdown-ts-mode meow migemo modus-ewal-theme
+		 mozc-modeless multiple-cursors nov nyan-mode oauth2 obsidian
+		 orderless org org-download peg persist persistent-scratch
+		 puni rainbow-delimiters request simple-httpd smartparens taxy
 		 timeout tr-ime track-changes tramp ultra-scroll vertico
 		 vertico-posframe visual-regexp visual-replace
 		 vscode-dark-plus-theme vundo wallpaper wgrep which-key
