@@ -70,6 +70,9 @@ NORMAL/INSERT/MOTION等の状態を持つモーダル編集レイヤー。CUAの
 | `SPC ?` | チートシート表示 |
 | `SPC /` | 現在のキーマップの内容を表示 |
 | `SPC b` | **ブックマーク一覧**（consult-bookmark） |
+| `SPC m` | **足跡一覧（現在のファイル）**（consult-mark） |
+| `SPC M` | **全ファイル足跡一覧**（consult-global-mark） |
+| `SPC s` | **Consult 探索メニュー**（全探索ツールを呼び出す） |
 | `SPC p (` / `[` / `{` / `<` | 選択範囲を丸 / 角 / 波 / 山括弧で包む（puni-wrap） |
 | `SPC p s` | 囲んでいる括弧だけを外す（puni-splice） |
 | `SPC p l` / `p b` | 次の要素を括弧内に取り込む / 末尾の要素を外に出す（puni-slurp/barf） |
@@ -121,7 +124,40 @@ NORMAL/INSERT/MOTION等の状態を持つモーダル編集レイヤー。CUAの
 | `C-e` | 行頭・行末のスマートトグル（インデント先頭 ⇆ 本当の行頭 ⇆ 行末） |
 | `C-x r b` / `SPC b` / `M-o b` | **ブックマーク一覧（consult-bookmark）** |
 | `C-x r m` | 現在のバッファ・位置をブックマーク保存（bookmark-set） |
+| `Alt + ←` | **バッファ履歴を戻る**（ブラウザの「戻る」のようにいくつ前でも過去のファイルへ遡る） |
+| `Alt + →` | **バッファ履歴を進む**（ブラウザの「進む」） |
+| `C-'` | **ピン留め（目印を打つ）**（範囲選択を起こさずに足跡履歴へ登録。どこにも飛ばず何箇所でも打てます） |
+| `C-S-'` / `C-u C-'` | **ピン全消去（クリア）**（このファイルのピン・足跡履歴をすべてクリアしてリセット） |
+| `M-g m` / `SPC m` | **足跡一覧（現在のファイル）**（consult-mark：過去の移動・編集・ピン留め履歴をリアルタイムプレビュー） |
+| `M-g M` / `SPC M` | **全ファイル足跡一覧**（consult-global-mark：別ファイルも含めた全足跡履歴一覧） |
 | ツールバーの **`Consult検索` ボタン** | クリック時にメニューを表示し、行検索（consult-line）またはアウトライン検索（consult-outline）を起動 |
+
+---
+
+## Consult 探索メニュー
+
+**`SPC s`**（NORMALモード時）、**`M-s`** または **`C-c s`**（入力中など全モード共通）を押すと、Consult の各種探索機能を集約した専用メニューが開きます。1文字キーを押すだけで目的の機能を呼び出せます。
+
+| メニューキー | 動作・役割 | 正式関数名 |
+|---|---|---|
+| `b` | 全バッファ・履歴・ブックマーク一覧 | `consult-buffer` |
+| `f` | 最近開いたファイル履歴 | `consult-recent-file` |
+| `g` | プロジェクト内のファイル名検索（fd） | `my/consult-fd-project` (`consult-fd`) |
+| `G` | カレントフォルダ起点のファイル名検索（fd） | `my/consult-fd-here` |
+| `e` | PC全体の超高速ファイル検索（Everything） | `consult-locate` |
+| `l` | バッファ内行検索（ローマ字・日本語Migemo対応） | `my/consult-line-migemo` (`consult-line`) |
+| `s` | プロジェクト全体の超高速全文検索（AND検索対応） | `consult-ripgrep` |
+| `w` | カーソル下の単語で全文検索 | `my/consult-ripgrep-word` |
+| `o` | 見出し（章・節・関数）一覧ジャンプ | `consult-outline` |
+| `i` | ソースコードの関数・クラス・変数定義一覧 | `consult-imenu` |
+| `m` | このファイルの足跡（マーク）履歴一覧 | `consult-mark` |
+| `M` | 全ファイルの足跡（マーク）履歴一覧 | `consult-global-mark` |
+| `'` | 現在位置をピン留め（足跡記録） | `my/quick-pin-set` |
+| `c` | このファイルのピン（足跡）を全消去 | `my/quick-pin-clear` |
+| `B` | 永続保存されたブックマーク一覧 | `consult-bookmark` |
+| `y` | **コピー履歴一覧から選んで貼り付け** | `consult-yank-pop` |
+| `t` | カラーテーマのリアルタイム試着・切り替え | `consult-theme` |
+| `r` | レジスタ一覧 | `consult-register` |
 
 ---
 
